@@ -1,0 +1,63 @@
+#title{
+    font-family: Arial, Helvetica, sans-serif;
+    margin-bottom: 3%;
+}
+
+#int-recherche{
+    position: absolute;
+    margin-top: -5%;
+    margin-bottom: 20%;
+    margin-left: 15%;
+    border-radius: 5px;
+    border: none;
+    box-shadow: 0px 0px 8px black;
+    font-family: Arial, Helvetica, sans-serif;
+    width: 3%;
+    transition: 0.4s;
+}
+
+#int-recherche:hover{
+    box-shadow: 0px 0px 15px black;
+}
+
+#int-recherche:focus{
+    width: 13%;
+    box-shadow: 0px 0px 15px black;
+}
+
+.grille-carte{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, 220px);
+    gap: 3px; /* très petit espacement */
+    padding: 10px;
+    justify-content: start;
+}
+
+.carte{
+    background-color: white;
+    border-radius: 10px;
+    box-shadow: 0px 0px 8px black;
+    text-align: center;
+    font-family: Arial, Helvetica, sans-serif;
+    padding: 5px;
+    width: 80%;
+    transition: 0.3s;
+    margin-top: 100%;
+}
+
+.carte:hover{
+    transform: scale(1.1);
+}
+
+#menu{
+    display: flex;
+    gap: 150px; /* espace fixe entre chaque lien, ajuste la valeur */
+    margin-left: 30%;
+    margin-top: -5%;
+}
+
+#menu a{
+    font-family: Arial, Helvetica, sans-serif;
+    text-decoration: none;
+    color: black;
+}
