@@ -50,7 +50,7 @@
   #topbar h1{font-size:16px;margin:0;color:var(--parchment);font-weight:600;}
   #topbar .stat{font-size:12px;color:var(--muted);display:flex;flex-direction:column;line-height:1.2;}
   #topbar .stat b{color:var(--brass);font-size:14px;font-family:'IBM Plex Mono',monospace;}
-  #topbar .actions{display:flex;gap:8px;}
+  #topbar .actions{display:flex;gap:8px;flex-wrap:wrap;}
   #topbar .actions button{
     background:var(--panel-2);border:1px solid var(--line);color:var(--parchment);
     padding:6px 10px;font-size:11px;border-radius:3px;text-transform:uppercase;letter-spacing:.05em;
@@ -163,6 +163,10 @@
     #hud{width:100%;border-left:none;border-top:1px solid var(--line);max-height:46vh;}
     #mapWrap{min-height:40vh;}
     .homeGrid{grid-template-columns:repeat(2,1fr);}
+    #topbar{gap:10px;padding:8px 10px;}
+    #topbar .stat{font-size:10px;}
+    #topbar .actions{gap:6px;}
+    #topbar .actions button{padding:5px 8px;font-size:10px;}
   }
 </style>
 </head>
