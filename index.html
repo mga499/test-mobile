@@ -126,10 +126,12 @@
 
   /* ---------- OVERLAYS ---------- */
   .overlay{position:fixed;inset:0;background:rgba(10,12,8,0.92);z-index:50;
-    display:flex;align-items:center;justify-content:center;padding:20px;}
+    display:flex;align-items:center;align-items:safe center;justify-content:center;padding:20px;
+    overflow-y:auto;-webkit-overflow-scrolling:touch;}
   .overlay.hidden{display:none;}
   .overlayBox{background:var(--panel);border:1px solid var(--brass-dim);border-radius:8px;
-    padding:32px;max-width:640px;width:100%;text-align:center;box-shadow:0 0 40px rgba(0,0,0,.5);}
+    padding:32px;max-width:640px;width:100%;text-align:center;box-shadow:0 0 40px rgba(0,0,0,.5);
+    margin:auto;max-height:none;}
   .overlayBox h1{font-size:28px;color:var(--brass);margin:0 0 6px;}
   .overlayBox p{color:var(--muted);font-size:13px;margin:0 0 22px;}
   .homeGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
