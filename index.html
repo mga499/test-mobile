@@ -1274,7 +1274,7 @@
       const {px,py} = toSvgPoint(e.clientX, e.clientY);
       const ux = (px - tx)/scale, uy = (py - ty)/scale;
       const factor = e.deltaY<0 ? 1.15 : 1/1.15;
-      scale = Math.max(0.5, Math.min(3.2, scale*factor));
+      scale = Math.max(0.5, Math.min(9, scale*factor));
       tx = px - ux*scale;
       ty = py - uy*scale;
       applyTransform();
@@ -1324,7 +1324,7 @@
         e.preventDefault();
         const dist = touchDist(e.touches[0], e.touches[1]);
         const factor = dist / pinchStart.dist;
-        scale = Math.max(0.5, Math.min(3.2, pinchStart.scale * factor));
+        scale = Math.max(0.5, Math.min(9, pinchStart.scale * factor));
         const midClientX = (e.touches[0].clientX + e.touches[1].clientX)/2;
         const midClientY = (e.touches[0].clientY + e.touches[1].clientY)/2;
         const {px,py} = toSvgPoint(midClientX, midClientY);
@@ -1350,7 +1350,7 @@
     });
 
     document.getElementById('zoomIn').addEventListener('click', ()=>{
-      scale = Math.min(3.2, scale*1.25); applyTransform();
+      scale = Math.min(9, scale*1.25); applyTransform();
     });
     document.getElementById('zoomOut').addEventListener('click', ()=>{
       scale = Math.max(0.5, scale/1.25); applyTransform();
