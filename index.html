@@ -59,7 +59,7 @@
 
   /* ---------- MAIN AREA ---------- */
   #main{display:flex;flex:1;min-height:0;}
-  #mapWrap{flex:1;position:relative;overflow:hidden;cursor:grab;background:var(--bg-deep);}
+  #mapWrap{flex:1;position:relative;overflow:hidden;cursor:grab;background:var(--bg-deep);touch-action:none;}
   #mapWrap.panning{cursor:grabbing;}
   #mapWrap svg{width:100%;height:100%;display:block;}
 
@@ -1275,15 +1275,43 @@
     });
     window.addEventListener('mouseup', ()=>{ isPanning=false; wrap.classList.remove('panning'); });
 
-    // touch (pan uniquement, simple)
+    // touch (pan une doigt + pincement à deux doigts pour zoomer)
     let touchStart=null;
+    let pinchStart=null; // {dist, scale, midSvgX, midSvgY, tx, ty}
+
+    function touchDist(t0,t1){
+      const dx=t0.clientX-t1.clientX, dy=t0.clientY-t1.clientY;
+      return Math.hypot(dx,dy);
+    }
+
     wrap.addEventListener('touchstart', (e)=>{
       if(e.touches.length===1){
         touchStart = {x:e.touches[0].clientX, y:e.touches[0].clientY, tx, ty};
+        pinchStart = null;
+      } else if(e.touches.length===2){
+        touchStart = null;
+        const dist = touchDist(e.touches[0], e.touches[1]);
+        const midClientX = (e.touches[0].clientX + e.touches[1].clientX)/2;
+        const midClientY = (e.touches[0].clientY + e.touches[1].clientY)/2;
+        const {px,py} = toSvgPoint(midClientX, midClientY);
+        pinchStart = { dist, scale, tx, ty, ux:(px-tx)/scale, uy:(py-ty)/scale };
       }
-    }, {passive:true});
+    }, {passive:false});
+
     wrap.addEventListener('touchmove', (e)=>{
-      if(e.touches.length===1 && touchStart){
+      if(e.touches.length===2 && pinchStart){
+        e.preventDefault();
+        const dist = touchDist(e.touches[0], e.touches[1]);
+        const factor = dist / pinchStart.dist;
+        scale = Math.max(0.5, Math.min(3.2, pinchStart.scale * factor));
+        const midClientX = (e.touches[0].clientX + e.touches[1].clientX)/2;
+        const midClientY = (e.touches[0].clientY + e.touches[1].clientY)/2;
+        const {px,py} = toSvgPoint(midClientX, midClientY);
+        tx = px - pinchStart.ux*scale;
+        ty = py - pinchStart.uy*scale;
+        applyTransform();
+      } else if(e.touches.length===1 && touchStart){
+        e.preventDefault();
         const rect = svg.getBoundingClientRect();
         const dxScreen = e.touches[0].clientX - touchStart.x;
         const dyScreen = e.touches[0].clientY - touchStart.y;
@@ -1291,8 +1319,14 @@
         ty = touchStart.ty + dyScreen * (900/rect.height);
         applyTransform();
       }
-    }, {passive:true});
-    wrap.addEventListener('touchend', ()=>{ touchStart=null; });
+    }, {passive:false});
+    wrap.addEventListener('touchend', (e)=>{
+      touchStart=null;
+      pinchStart=null;
+      if(e.touches.length===1){
+        touchStart = {x:e.touches[0].clientX, y:e.touches[0].clientY, tx, ty};
+      }
+    });
 
     document.getElementById('zoomIn').addEventListener('click', ()=>{
       scale = Math.min(3.2, scale*1.25); applyTransform();
