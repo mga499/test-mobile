@@ -164,9 +164,9 @@
   .paletteSwatch.selected{border-color:var(--brass);transform:scale(1.15);}
   #topbarFlag{display:inline-flex;border:1px solid var(--line);vertical-align:middle;margin-right:8px;border-radius:2px;overflow:hidden;}
 
-  #lobbyCanvas{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;
-    border-radius:8px;}
-  #lobbyBox{position:relative;z-index:1;background:var(--panel);border:1px solid var(--brass-dim);
+  #lobbyCanvas{display:block;width:100%;height:150px;border-radius:6px;border:1px solid var(--line);
+    background:#0a0f0a;margin:4px 0 18px;}
+  #lobbyBox{position:relative;background:var(--panel);border:1px solid var(--brass-dim);
     box-shadow:0 0 40px rgba(0,0,0,.6), 0 0 60px rgba(201,162,39,.08);}
   #startOverlay{position:relative;align-items:flex-start !important;padding-top:4vh;}
   .tilt3d{perspective:600px;}
@@ -278,9 +278,9 @@
 
   <!-- START OVERLAY -->
   <div class="overlay hidden" id="startOverlay">
-    <canvas id="lobbyCanvas"></canvas>
     <div class="overlayBox" id="lobbyBox">
       <h1>Empire Mondial</h1>
+      <canvas id="lobbyCanvas"></canvas>
       <p id="startSub">Choisissez la nation depuis laquelle vous bâtirez votre empire. Le territoire choisi sera arraché à son occupant actuel et deviendra votre capitale.</p>
       <div id="continueBlock" class="continueRow" style="display:none;margin-bottom:18px;">
         <button class="primaryBtn" id="btnContinue" style="border-radius:5px;">Continuer la partie</button>
