@@ -166,9 +166,9 @@
 
   #lobbyCanvas{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;
     border-radius:8px;}
-  #lobbyBox{position:relative;z-index:1;background:rgba(30,35,24,0.82);backdrop-filter:blur(2px);}
-  #startOverlay{position:relative;}
-  #startOverlay #lobbyCanvas{position:fixed;inset:0;border-radius:0;}
+  #lobbyBox{position:relative;z-index:1;background:var(--panel);border:1px solid var(--brass-dim);
+    box-shadow:0 0 40px rgba(0,0,0,.6), 0 0 60px rgba(201,162,39,.08);}
+  #startOverlay{position:relative;align-items:flex-start !important;padding-top:4vh;}
   .tilt3d{perspective:600px;}
   .tilt3d button{
     transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;
