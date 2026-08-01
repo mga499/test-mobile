@@ -6,6 +6,7 @@
 <title>Empire Mondial — Salle de commandement</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
   :root{
     --bg:#171a13;
@@ -155,6 +156,34 @@
   }
   .homeGrid button:hover{border-color:var(--brass);color:var(--brass);background:var(--bg-deep);}
   .homeGrid button.diffBtn.selected{background:var(--brass-dim);color:#fff;border-color:var(--brass);font-weight:600;}
+
+  .flagCell{width:18px;height:18px;border:1px solid rgba(0,0,0,.3);cursor:pointer;display:inline-block;}
+  .flagCell:hover{outline:2px solid var(--brass);outline-offset:-2px;}
+  .flagRow{display:flex;}
+  .paletteSwatch{width:22px;height:22px;border-radius:3px;cursor:pointer;border:2px solid transparent;}
+  .paletteSwatch.selected{border-color:var(--brass);transform:scale(1.15);}
+  #topbarFlag{display:inline-flex;border:1px solid var(--line);vertical-align:middle;margin-right:8px;border-radius:2px;overflow:hidden;}
+
+  #lobbyCanvas{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;
+    border-radius:8px;}
+  #lobbyBox{position:relative;z-index:1;background:rgba(30,35,24,0.82);backdrop-filter:blur(2px);}
+  #startOverlay{position:relative;}
+  #startOverlay #lobbyCanvas{position:fixed;inset:0;border-radius:0;}
+  .tilt3d{perspective:600px;}
+  .tilt3d button{
+    transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+    transform-style:preserve-3d;
+    box-shadow:0 2px 0 rgba(0,0,0,.4);
+  }
+  .tilt3d button:hover{
+    transform:translateY(-3px) rotateX(8deg) scale(1.04);
+    box-shadow:0 10px 18px rgba(0,0,0,.5), 0 0 12px rgba(201,162,39,.35);
+    border-color:var(--brass);
+    color:var(--brass);
+    z-index:2;
+  }
+  .tilt3d button:active{ transform:translateY(0) rotateX(0) scale(.98); }
+  .tilt3d button.selected:hover, .tilt3d button.diffBtn.selected:hover{ color:#fff; }
   .continueRow{display:flex;gap:12px;justify-content:center;}
   .continueRow button{padding:12px 20px;border-radius:5px;font-size:13px;}
 
@@ -177,6 +206,7 @@
 
   <div id="topbar">
     <div class="brand">
+      <span id="topbarFlag"></span>
       <div class="swatch"></div>
       <h1 id="playerTitle">VOTRE NATION</h1>
     </div>
@@ -187,6 +217,7 @@
     <div class="stat">CHRONO<b id="statTime">00:00:00</b></div>
     <div class="actions">
       <button id="btnHelp">Comment jouer ?</button>
+      <button id="btnProfile">Profil</button>
       <button id="btnLeaderboard">Classement</button>
       <button id="btnSave">Sauvegarder</button>
       <button id="btnLoad">Charger</button>
@@ -211,6 +242,10 @@
         <div class="card" id="selCard">
           <div class="placeholder">Sélectionnez un territoire sur la carte pour voir son détail, recruter des troupes ou lancer une attaque.</div>
         </div>
+        <div class="card" id="arsenalCard">
+          <h3>Arsenal</h3>
+          <div id="arsenalBody"></div>
+        </div>
         <div class="card" id="diploCard">
           <h3>Diplomatie</h3>
           <div id="diploBody"></div>
@@ -229,7 +264,9 @@
         <p><b style="color:var(--brass);">Objectif :</b> conquérir la totalité des territoires du globe, un par un, en partant d'une seule nation.</p>
         <p><b style="color:var(--brass);">La carte :</b> utilisez la molette pour zoomer, glissez avec la souris (ou le doigt) pour vous déplacer. Cliquez sur un territoire pour voir son détail dans le panneau de droite.</p>
         <p><b style="color:var(--brass);">Vos territoires :</b> recrutez des troupes contre de l'or, puis attaquez un territoire voisin en choisissant combien de troupes envoyer. Plus vous en envoyez, plus vos chances de conquête augmentent — mais les troupes envoyées sont perdues en cas d'échec.</p>
-        <p><b style="color:var(--brass);">Diplomatie :</b> avec chacune des 3 factions IA, vous pouvez proposer une <b>alliance</b> (elles ne vous attaqueront plus) ou un <b>contrat commercial</b> (de l'or contre des troupes, et de meilleures relations).</p>
+        <p><b style="color:var(--brass);">Diplomatie :</b> avec chacune des 3 factions IA, vous pouvez proposer une <b>alliance</b> (elles ne vous attaqueront plus) ou un <b>contrat commercial</b> (de l'or contre des troupes, et de meilleures relations). Attention : une alliance non entretenue se dégrade avec le temps et finit par se rompre d'elle-même si vos relations tombent trop bas — pensez à renouveler les contrats commerciaux pour la maintenir. Vous pouvez aussi <b>menacer</b> une faction non alliée pour faire monter les tensions et préparer la guerre : ses relations avec vous chutent et elle devient hostile, prête à vous attaquer en priorité.</p>
+        <p><b style="color:var(--brass);">Arsenal :</b> construisez des <b>missiles</b> contre de l'or et frappez n'importe quel territoire de la carte, même non adjacent, pour affaiblir sa garnison à distance sans le capturer.</p>
+        <p><b style="color:var(--brass);">Programme nucléaire :</b> construisez une <b>usine nucléaire</b> (très coûteuse), puis fabriquez des <b>bombes nucléaires</b> pour détruire 70% de la garnison d'un territoire ciblé en une seule frappe. Un moyen radical mais ruineux de faire pencher la balance.</p>
         <p><b style="color:var(--brass);">Le temps qui passe :</b> le jeu avance tout seul, tour après tour : vous gagnez de l'or, vos garnisons se renforcent un peu, et les IA recrutent ou attaquent de leur côté.</p>
         <p><b style="color:var(--brass);">Sauvegarde :</b> la partie est enregistrée automatiquement dans votre navigateur. Vous pouvez aussi sauvegarder, charger ou recommencer depuis les boutons en haut de l'écran.</p>
       </div>
@@ -241,7 +278,8 @@
 
   <!-- START OVERLAY -->
   <div class="overlay hidden" id="startOverlay">
-    <div class="overlayBox">
+    <canvas id="lobbyCanvas"></canvas>
+    <div class="overlayBox" id="lobbyBox">
       <h1>Empire Mondial</h1>
       <p id="startSub">Choisissez la nation depuis laquelle vous bâtirez votre empire. Le territoire choisi sera arraché à son occupant actuel et deviendra votre capitale.</p>
       <div id="continueBlock" class="continueRow" style="display:none;margin-bottom:18px;">
@@ -250,9 +288,9 @@
       </div>
       <div id="difficultyBlock" style="margin-bottom:18px;">
         <h3 style="font-size:11px;color:var(--brass);letter-spacing:.08em;text-transform:uppercase;margin:0 0 8px;">Difficulté</h3>
-        <div class="homeGrid" id="difficultyGrid" style="grid-template-columns:repeat(4,1fr);"></div>
+        <div class="homeGrid tilt3d" id="difficultyGrid" style="grid-template-columns:repeat(3,1fr);"></div>
       </div>
-      <div class="homeGrid" id="homeGrid"></div>
+      <div class="homeGrid tilt3d" id="homeGrid"></div>
     </div>
   </div>
 
@@ -275,6 +313,56 @@
       <div id="leaderboardBody"></div>
       <div class="continueRow" style="margin-top:18px;">
         <button class="primaryBtn" id="btnLeaderboardClose" style="border-radius:5px;">Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONFIRM RESET OVERLAY -->
+  <div class="overlay hidden" id="confirmResetOverlay">
+    <div class="overlayBox" style="text-align:left;max-width:460px;">
+      <h1 style="text-align:center;color:var(--crimson);">Recommencer ?</h1>
+      <p id="confirmResetText" style="text-align:center;">Cette action effacera définitivement votre partie en cours.</p>
+      <p style="text-align:center;font-size:12px;color:var(--muted);margin-bottom:8px;">Pour confirmer, tapez le nom de votre nation : <b id="confirmResetName" style="color:var(--brass);">—</b></p>
+      <input type="text" id="confirmResetInput" placeholder="Nom de la nation"
+        style="width:100%;background:var(--bg-deep);border:1px solid var(--line);color:var(--parchment);
+        padding:10px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:14px;margin-bottom:6px;">
+      <p id="confirmResetError" style="color:var(--crimson);font-size:11px;min-height:14px;text-align:center;"></p>
+      <div class="continueRow" style="margin-top:10px;">
+        <button class="dangerBtn" id="btnConfirmResetGo" style="border-radius:5px;padding:10px 18px;background:var(--panel-2);border:1px solid var(--crimson);">Effacer et recommencer</button>
+        <button id="btnConfirmResetCancel" style="background:var(--panel-2);border:1px solid var(--line);color:var(--parchment);border-radius:5px;">Annuler</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PROFILE OVERLAY -->
+  <div class="overlay hidden" id="profileOverlay">
+    <div class="overlayBox" style="text-align:left;max-width:480px;">
+      <h1 style="text-align:center;">Votre profil</h1>
+      <div style="margin-bottom:16px;">
+        <label style="font-size:11px;color:var(--brass);letter-spacing:.08em;text-transform:uppercase;display:block;margin-bottom:6px;">Pseudo</label>
+        <input type="text" id="profilePseudoInput" maxlength="24" placeholder="Votre pseudo"
+          style="width:100%;background:var(--bg-deep);border:1px solid var(--line);color:var(--parchment);
+          padding:10px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:14px;">
+      </div>
+      <div class="card" style="margin-bottom:16px;">
+        <div class="row"><span>Parties jouées</span><b id="profileGames">0</b></div>
+        <div class="row"><span>Victoires</span><b id="profileWins">0</b></div>
+        <div class="row"><span>Défaites</span><b id="profileLosses">0</b></div>
+        <div class="row"><span>Meilleur temps</span><b id="profileBestTime">—</b></div>
+      </div>
+      <div style="margin-bottom:16px;">
+        <label style="font-size:11px;color:var(--brass);letter-spacing:.08em;text-transform:uppercase;display:block;margin-bottom:6px;">Votre drapeau</label>
+        <div id="flagPreviewWrap" style="display:flex;justify-content:center;margin-bottom:10px;"></div>
+        <div id="flagGrid" style="display:flex;justify-content:center;margin-bottom:10px;"></div>
+        <div id="flagPalette" style="display:flex;gap:5px;flex-wrap:wrap;justify-content:center;margin-bottom:8px;"></div>
+        <div class="continueRow">
+          <button class="miniBtn" id="btnFlagRandom">Aléatoire</button>
+          <button class="miniBtn" id="btnFlagReset">Réinitialiser</button>
+        </div>
+      </div>
+      <div class="continueRow">
+        <button class="primaryBtn" id="btnProfileSave" style="border-radius:5px;">Enregistrer</button>
+        <button id="btnProfileClose" style="background:var(--panel-2);border:1px solid var(--line);color:var(--parchment);border-radius:5px;">Fermer</button>
       </div>
     </div>
   </div>
@@ -751,15 +839,21 @@
     facile:   { label:'Facile',   homeBonus:40, startGold:500, aiRecruitChance:0.75, defenseFactionMult:1.05, defenseNeutralMult:0.85, attackerBonusMult:0.85, passiveRegen:2, graceTicks:6, aiSentFraction:0.50, aiRecruitMin:5,  aiRecruitMax:10 },
     moyen:    { label:'Moyen',    homeBonus:30, startGold:400, aiRecruitChance:0.65, defenseFactionMult:1.15, defenseNeutralMult:0.90, attackerBonusMult:0.90, passiveRegen:1, graceTicks:4, aiSentFraction:0.55, aiRecruitMin:6,  aiRecruitMax:8  },
     difficile:{ label:'Difficile',homeBonus:15, startGold:300, aiRecruitChance:0.50, defenseFactionMult:1.20, defenseNeutralMult:1.00, attackerBonusMult:1.00, passiveRegen:0, graceTicks:2, aiSentFraction:0.60, aiRecruitMin:7,  aiRecruitMax:10 },
-    expert:   { label:'Expert',   homeBonus:5,  startGold:200, aiRecruitChance:0.40, defenseFactionMult:1.30, defenseNeutralMult:1.10, attackerBonusMult:1.10, passiveRegen:0, graceTicks:0, aiSentFraction:0.65, aiRecruitMin:8,  aiRecruitMax:14 }
+    expert:   { label:'Expert',   homeBonus:5,  startGold:200, aiRecruitChance:0.40, defenseFactionMult:1.30, defenseNeutralMult:1.10, attackerBonusMult:1.10, passiveRegen:0, graceTicks:0, aiSentFraction:0.65, aiRecruitMin:8,  aiRecruitMax:14 },
+    impossible:{ label:'Impossible', homeBonus:0, startGold:100, aiRecruitChance:0.30, defenseFactionMult:1.45, defenseNeutralMult:1.25, attackerBonusMult:1.25, passiveRegen:0, graceTicks:0, aiSentFraction:0.75, aiRecruitMin:10, aiRecruitMax:18 }
   };
   let selectedDifficulty = 'moyen';
 
   const SAVE_KEY = 'empireMondialSave_v1';
   const LEADERBOARD_KEY = 'empireMondialLeaderboard_v1';
+  const PROFILE_KEY = 'empireMondialProfile_v1';
   const RECRUIT_COST = 6;
   const CONTRACT_COST = 50;
   const CONTRACT_TROOPS = 15;
+  const MISSILE_COST = 40;
+  const NUCLEAR_FACTORY_COST = 1000000;
+  const NUCLEAR_BOMB_COST = 100000;
+  const NUCLEAR_DAMAGE_RATIO = 0.70;
   const TICK_MS = 5000;
 
   const byId = {};
@@ -788,6 +882,10 @@
       gold: { player:diff.startGold, crimson:200, violet:200, amber:200 },
       relations: { crimson:0, violet:0, amber:0 },
       alliances: { crimson:false, violet:false, amber:false },
+      hostility: { crimson:0, violet:0, amber:0 },
+      missiles: 0,
+      nuclearFactories: 0,
+      nuclearBombs: 0,
       selected: null,
       tick: 0,
       over: false,
@@ -848,6 +946,7 @@
       sub.textContent = `Vous avez conquis les 170 territoires du globe à ${time}, en ${duration}. Votre bannière flotte sur le monde entier.`;
       addLog(`<b>Victoire totale !</b> Le monde entier est sous votre bannière, en <b>${duration}</b>.`, true);
       const isNewBest = saveLeaderboardEntry({
+        pseudo: currentPseudo(),
         homeName: byId[state.home].name,
         difficulty: state.difficulty,
         elapsedMs,
@@ -857,11 +956,18 @@
         sub.textContent += ' Nouveau meilleur temps !';
       }
       renderLeaderboardInto('endLeaderboard');
+      const profile = loadProfile();
+      profile.victories += 1;
+      if(profile.bestTimeMs==null || elapsedMs < profile.bestTimeMs) profile.bestTimeMs = elapsedMs;
+      saveProfile(profile);
     } else {
       title.textContent = 'Défaite';
       sub.textContent = `Votre dernier territoire est tombé à ${time}, après ${duration} de jeu. Votre nation a cessé d'exister.`;
       addLog(`<b>Défaite.</b> Votre dernier territoire est tombé après <b>${duration}</b>.`, true);
       document.getElementById('endLeaderboard').innerHTML = '';
+      const profile = loadProfile();
+      profile.defeats += 1;
+      saveProfile(profile);
     }
     saveGame();
     overlay.classList.remove('hidden');
@@ -998,6 +1104,123 @@
     render();
   }
 
+  // Menace diplomatique : la faction évalue le rapport de force avant de répondre
+  function threatenFaction(f){
+    if(state.over) return;
+    const owned = ownedList(f);
+    if(owned.length===0){ addLog(`${FACTIONS[f].name} a été éliminé.`); return; }
+    const playerPower = ownedList('player').reduce((s,c)=>s+state.countries[c.id].troops,0);
+    const facPower = owned.reduce((s,c)=>s+state.countries[c.id].troops,0);
+    const ratio = playerPower / Math.max(1, facPower);
+
+    if(ratio >= 1.4){
+      state.relations[f] = Math.max(-100, state.relations[f]-15);
+      state.hostility[f] = 1;
+      addLog(`Vous menacez <b>${FACTIONS[f].name}</b>. Intimidée par votre puissance, elle se met sur la défensive — les tensions montent.`, true);
+    } else if(ratio >= 0.8){
+      state.relations[f] = Math.max(-100, state.relations[f]-20);
+      state.hostility[f] = 2;
+      addLog(`<b>${FACTIONS[f].name}</b> rejette votre menace et se prépare ouvertement au conflit.`, true);
+    } else {
+      state.relations[f] = Math.max(-100, state.relations[f]-25);
+      state.hostility[f] = 3;
+      addLog(`<b>${FACTIONS[f].name}</b> se moque de votre menace et devient immédiatement hostile envers vous.`, true);
+    }
+    saveGame();
+    render();
+  }
+
+  function buildMissiles(amount){
+    if(state.over) return;
+    amount = Math.max(1, Math.floor(amount)||1);
+    const maxAffordable = Math.floor(state.gold.player/MISSILE_COST);
+    if(maxAffordable<=0){ addLog('Trésor insuffisant pour construire des missiles.'); return; }
+    amount = Math.min(amount, maxAffordable);
+    state.gold.player -= amount*MISSILE_COST;
+    state.missiles += amount;
+    addLog(`Construction de <b>${amount}</b> missile(s). Stock : ${state.missiles}.`);
+    saveGame();
+    render();
+  }
+
+  function launchMissile(targetId){
+    if(state.over) return;
+    if(state.missiles<1){ addLog('Aucun missile disponible.'); return; }
+    const toState = state.countries[targetId];
+    if(!toState || toState.owner==='player') return;
+    const toC = byId[targetId];
+
+    if(FACTIONS[toState.owner] && state.alliances[toState.owner]){
+      const ok = window.confirm(`${FACTIONS[toState.owner].name} est votre allié. Le frapper rompra immédiatement l'alliance. Continuer ?`);
+      if(!ok) return;
+      state.alliances[toState.owner] = false;
+      state.relations[toState.owner] = Math.max(-100, state.relations[toState.owner]-60);
+      addLog(`Vous rompez l'alliance avec <b>${FACTIONS[toState.owner].name}</b> en frappant ${toC.name} au missile.`, true);
+    } else if(FACTIONS[toState.owner]){
+      state.relations[toState.owner] = Math.max(-100, state.relations[toState.owner]-10);
+    }
+
+    state.missiles -= 1;
+    const loss = Math.max(1, Math.round(toState.troops * (0.25 + Math.random()*0.15)));
+    toState.troops = Math.max(1, toState.troops - loss);
+    addLog(`Frappe de missile sur <b>${toC.name}</b> : -${loss} troupes. Il reste ${state.missiles} missile(s).`, true);
+    saveGame();
+    render();
+  }
+
+  function buildNuclearFactory(amount){
+    if(state.over) return;
+    amount = Math.max(1, Math.floor(amount)||1);
+    const maxAffordable = Math.floor(state.gold.player/NUCLEAR_FACTORY_COST);
+    if(maxAffordable<=0){ addLog(`Trésor insuffisant pour construire une usine nucléaire (${NUCLEAR_FACTORY_COST} or).`); return; }
+    amount = Math.min(amount, maxAffordable);
+    state.gold.player -= amount*NUCLEAR_FACTORY_COST;
+    state.nuclearFactories += amount;
+    addLog(`Construction de <b>${amount}</b> usine(s) nucléaire(s). Total : ${state.nuclearFactories}.`, true);
+    saveGame();
+    render();
+  }
+
+  function buildNuclearBombs(amount){
+    if(state.over) return;
+    if(state.nuclearFactories<1){ addLog('Il faut au moins une usine nucléaire avant de pouvoir fabriquer des bombes.'); return; }
+    amount = Math.max(1, Math.floor(amount)||1);
+    const maxAffordable = Math.floor(state.gold.player/NUCLEAR_BOMB_COST);
+    if(maxAffordable<=0){ addLog(`Trésor insuffisant pour fabriquer une bombe nucléaire (${NUCLEAR_BOMB_COST} or).`); return; }
+    amount = Math.min(amount, maxAffordable);
+    state.gold.player -= amount*NUCLEAR_BOMB_COST;
+    state.nuclearBombs += amount;
+    addLog(`Fabrication de <b>${amount}</b> bombe(s) nucléaire(s). Stock : ${state.nuclearBombs}.`, true);
+    saveGame();
+    render();
+  }
+
+  function launchNuclearBomb(targetId){
+    if(state.over) return;
+    if(state.nuclearBombs<1){ addLog('Aucune bombe nucléaire disponible.'); return; }
+    const toState = state.countries[targetId];
+    if(!toState || toState.owner==='player') return;
+    const toC = byId[targetId];
+
+    const ok = window.confirm(`Lancer une frappe nucléaire sur ${toC.name} ? Cela détruira 70% de sa garnison. Cette action est irréversible.`);
+    if(!ok) return;
+
+    if(FACTIONS[toState.owner] && state.alliances[toState.owner]){
+      state.alliances[toState.owner] = false;
+      state.relations[toState.owner] = Math.max(-100, state.relations[toState.owner]-60);
+      addLog(`Vous rompez l'alliance avec <b>${FACTIONS[toState.owner].name}</b> en lançant une frappe nucléaire sur ${toC.name}.`, true);
+    } else if(FACTIONS[toState.owner]){
+      state.relations[toState.owner] = Math.max(-100, state.relations[toState.owner]-25);
+    }
+
+    state.nuclearBombs -= 1;
+    const loss = Math.max(1, Math.round(toState.troops * NUCLEAR_DAMAGE_RATIO));
+    toState.troops = Math.max(1, toState.troops - loss);
+    addLog(`☢️ <b>Frappe nucléaire sur ${toC.name}</b> : -${loss} troupes (70% de sa garnison anéantie). Il reste ${state.nuclearBombs} bombe(s).`, true);
+    saveGame();
+    render();
+  }
+
   /* ============ IA ============ */
   function aiTurn(f){
     const owned = ownedList(f);
@@ -1006,7 +1229,9 @@
     owned.forEach(c=>{ state.gold[f] += byId[c.id].income; });
 
     const r = Math.random();
-    if(r<diff.aiRecruitChance && state.gold[f]>=RECRUIT_COST){
+    const isHostile = (state.hostility[f]||0) > 0;
+    const recruitChance = isHostile ? diff.aiRecruitChance*0.4 : diff.aiRecruitChance;
+    if(r<recruitChance && state.gold[f]>=RECRUIT_COST){
       const target = owned[Math.floor(Math.random()*owned.length)];
       const cs = state.countries[target.id];
       const affordable = Math.floor(state.gold[f]/RECRUIT_COST);
@@ -1027,8 +1252,13 @@
         });
       });
       if(candidates.length){
-        candidates.sort((a,b)=>a.toTroops-b.toTroops);
-        const pick = candidates[Math.floor(Math.random()*Math.min(4,candidates.length))];
+        let pool = candidates;
+        if(isHostile){
+          const againstPlayer = candidates.filter(c=>state.countries[c.to.id].owner==='player');
+          if(againstPlayer.length) pool = againstPlayer;
+        }
+        pool.sort((a,b)=>a.toTroops-b.toTroops);
+        const pick = pool[Math.floor(Math.random()*Math.min(4,pool.length))];
         const fromState = state.countries[pick.from.id];
         const sent = Math.max(3, Math.floor(fromState.troops*diff.aiSentFraction));
         if(pick.to && state.countries[pick.to.id].owner==='player'){
@@ -1037,8 +1267,14 @@
         resolveCombat(pick.from, pick.to, sent, f);
       }
     }
+    if(state.hostility[f]>0) state.hostility[f]--;
     state.relations[f] += state.relations[f]>0 ? -1 : (state.relations[f]<0 ? 1 : 0);
     state.relations[f] = Math.max(-100, Math.min(100, state.relations[f]));
+
+    if(state.alliances[f] && state.relations[f] < 10){
+      state.alliances[f] = false;
+      addLog(`<b>${FACTIONS[f].name}</b> rompt son alliance avec vous : vos relations se sont trop dégradées. Un contrat commercial régulier les entretient.`, true);
+    }
   }
 
   function tick(){
@@ -1077,6 +1313,10 @@
       if(!DIFFICULTIES[state.difficulty]) state.difficulty = 'moyen';
       if(!state.startTime) state.startTime = Date.now();
       if(state.finalElapsedMs===undefined) state.finalElapsedMs = null;
+      if(typeof state.missiles !== 'number') state.missiles = 0;
+      if(!state.hostility) state.hostility = { crimson:0, violet:0, amber:0 };
+      if(typeof state.nuclearFactories !== 'number') state.nuclearFactories = 0;
+      if(typeof state.nuclearBombs !== 'number') state.nuclearBombs = 0;
       return true;
     }catch(e){ return false; }
   }
@@ -1119,10 +1359,114 @@
       <div style="max-height:220px;overflow-y:auto;">
         ${list.map((e,i)=>`
           <div class="neighborItem">
-            <span>#${i+1} — ${e.homeName} <span style="color:var(--muted);">(${(DIFFICULTIES[e.difficulty]||{}).label||e.difficulty})</span></span>
+            <span>#${i+1} — ${e.pseudo ? e.pseudo+' · ' : ''}${e.homeName} <span style="color:var(--muted);">(${(DIFFICULTIES[e.difficulty]||{}).label||e.difficulty})</span></span>
             <span><b style="color:var(--brass);">${formatDuration(e.elapsedMs)}</b> <span style="color:var(--muted);font-size:10px;">${e.date||''}</span></span>
           </div>`).join('')}
       </div>`;
+  }
+
+  /* ============ PROFIL JOUEUR ============ */
+  const FLAG_COLS = 8, FLAG_ROWS = 5;
+  const FLAG_PALETTE = ['#e14b4b','#f0a23d','#e8dfc8','#3ddbf0','#8fd15a','#a374e8','#c9a227','#171a13','#e8e8e8','#6b3fa0'];
+  function defaultFlag(){
+    const arr = new Array(FLAG_COLS*FLAG_ROWS).fill('#3ddbf0');
+    for(let r=0;r<FLAG_ROWS;r++){
+      if(r%2===1){ for(let c=0;c<FLAG_COLS;c++) arr[r*FLAG_COLS+c] = '#c9a227'; }
+    }
+    return arr;
+  }
+  function flagSvg(flagArr, cellPx){
+    const w = FLAG_COLS*cellPx, h = FLAG_ROWS*cellPx;
+    let rects = '';
+    for(let r=0;r<FLAG_ROWS;r++){
+      for(let c=0;c<FLAG_COLS;c++){
+        const color = (flagArr && flagArr[r*FLAG_COLS+c]) || '#3ddbf0';
+        rects += `<rect x="${c*cellPx}" y="${r*cellPx}" width="${cellPx}" height="${cellPx}" fill="${color}"/>`;
+      }
+    }
+    return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">${rects}</svg>`;
+  }
+
+  function loadProfile(){
+    try{
+      const raw = localStorage.getItem(PROFILE_KEY);
+      if(!raw) return { pseudo:'', gamesPlayed:0, victories:0, defeats:0, bestTimeMs:null, flag: defaultFlag() };
+      const p = JSON.parse(raw);
+      return {
+        pseudo: p.pseudo || '',
+        gamesPlayed: p.gamesPlayed || 0,
+        victories: p.victories || 0,
+        defeats: p.defeats || 0,
+        bestTimeMs: (typeof p.bestTimeMs === 'number') ? p.bestTimeMs : null,
+        flag: (Array.isArray(p.flag) && p.flag.length===FLAG_COLS*FLAG_ROWS) ? p.flag : defaultFlag()
+      };
+    }catch(e){
+      return { pseudo:'', gamesPlayed:0, victories:0, defeats:0, bestTimeMs:null, flag: defaultFlag() };
+    }
+  }
+  function saveProfile(profile){
+    try{ localStorage.setItem(PROFILE_KEY, JSON.stringify(profile)); }catch(e){}
+  }
+  function currentPseudo(){
+    const p = loadProfile();
+    return p.pseudo && p.pseudo.trim() ? p.pseudo.trim() : 'Anonyme';
+  }
+
+  let flagDraft = null;
+  let flagPaintColor = FLAG_PALETTE[0];
+
+  function renderFlagEditor(){
+    const gridEl = document.getElementById('flagGrid');
+    const previewEl = document.getElementById('flagPreviewWrap');
+    const paletteEl = document.getElementById('flagPalette');
+
+    previewEl.innerHTML = flagSvg(flagDraft, 8);
+
+    let gridHtml = '';
+    for(let r=0;r<FLAG_ROWS;r++){
+      gridHtml += '<div class="flagRow">';
+      for(let c=0;c<FLAG_COLS;c++){
+        const idx = r*FLAG_COLS+c;
+        gridHtml += `<span class="flagCell" data-idx="${idx}" style="background:${flagDraft[idx]};"></span>`;
+      }
+      gridHtml += '</div>';
+    }
+    gridEl.innerHTML = gridHtml;
+    gridEl.querySelectorAll('.flagCell').forEach(cell=>{
+      cell.addEventListener('click', ()=>{
+        flagDraft[parseInt(cell.dataset.idx,10)] = flagPaintColor;
+        renderFlagEditor();
+      });
+    });
+
+    paletteEl.innerHTML = FLAG_PALETTE.map(col=>
+      `<span class="paletteSwatch${col===flagPaintColor?' selected':''}" data-color="${col}" style="background:${col};"></span>`
+    ).join('');
+    paletteEl.querySelectorAll('.paletteSwatch').forEach(sw=>{
+      sw.addEventListener('click', ()=>{
+        flagPaintColor = sw.dataset.color;
+        renderFlagEditor();
+      });
+    });
+  }
+
+  function renderTopbarFlag(){
+    const el = document.getElementById('topbarFlag');
+    if(!el) return;
+    const p = loadProfile();
+    el.innerHTML = flagSvg(p.flag, 3);
+  }
+
+  function renderProfileOverlay(){
+    const p = loadProfile();
+    document.getElementById('profilePseudoInput').value = p.pseudo || '';
+    document.getElementById('profileGames').textContent = p.gamesPlayed;
+    document.getElementById('profileWins').textContent = p.victories;
+    document.getElementById('profileLosses').textContent = p.defeats;
+    document.getElementById('profileBestTime').textContent = p.bestTimeMs!=null ? formatDuration(p.bestTimeMs) : '—';
+    flagDraft = p.flag.slice();
+    flagPaintColor = FLAG_PALETTE[0];
+    renderFlagEditor();
   }
 
   /* ============ CARTE (SVG) ============ */
@@ -1367,7 +1711,8 @@
     document.getElementById('statTroops').textContent = totalTroops;
     document.getElementById('statTerr').textContent = `${ownedList('player').length}/170`;
     document.getElementById('statTick').textContent = state.tick;
-    document.getElementById('playerTitle').textContent = `NATION DE ${byId[state.home].name.toUpperCase()} — ${(DIFFICULTIES[state.difficulty]||DIFFICULTIES.moyen).label.toUpperCase()}`;
+    document.getElementById('playerTitle').textContent = `${currentPseudo().toUpperCase()} — NATION DE ${byId[state.home].name.toUpperCase()} — ${(DIFFICULTIES[state.difficulty]||DIFFICULTIES.moyen).label.toUpperCase()}`;
+    renderTopbarFlag();
     document.getElementById('statTime').textContent = (state.over && state.finalElapsedMs!=null)
       ? formatDuration(state.finalElapsedMs)
       : formatDuration(Date.now() - (state.startTime || Date.now()));
@@ -1461,6 +1806,66 @@
     card.innerHTML = html;
   }
 
+  function renderArsenal(){
+    const body = document.getElementById('arsenalBody');
+    let html = `
+      <div class="row"><span>Missiles en stock</span><b>${state.missiles}</b></div>
+      <div class="actionsRow">
+        <input type="number" class="numInput" id="missileAmt" value="1" min="1">
+        <button class="miniBtn" data-act="buildMissiles">Construire (${MISSILE_COST} or/pièce)</button>
+      </div>`;
+    const sel = state.selected;
+    if(sel && state.countries[sel].owner!=='player'){
+      const c = byId[sel];
+      if(state.missiles>=1){
+        html += `
+          <div class="neighborBox">
+            <div class="neighborItem">
+              <span>Frapper ${c.name} au missile</span>
+              <button class="miniBtn dangerBtn" data-act="launchMissile" data-to="${sel}">Tirer</button>
+            </div>
+            <span style="font-size:10px;color:var(--muted);">Affaiblit la garnison à distance, sans capturer le territoire ni nécessiter d'adjacence.</span>
+          </div>`;
+      } else {
+        html += `<div class="neighborBox"><span style="font-size:11px;color:var(--muted);">Construisez au moins un missile pour pouvoir frapper ${c.name}.</span></div>`;
+      }
+    } else {
+      html += `<div class="neighborBox"><span style="font-size:11px;color:var(--muted);">Sélectionnez un territoire ennemi ou neutre sur la carte pour le frapper au missile.</span></div>`;
+    }
+
+    html += `
+      <div class="neighborBox">
+        <h3 style="margin-bottom:6px;">Programme nucléaire</h3>
+        <div class="row"><span>Usines nucléaires</span><b>${state.nuclearFactories}</b></div>
+        <div class="actionsRow" style="margin-bottom:8px;">
+          <input type="number" class="numInput" id="factoryAmt" value="1" min="1">
+          <button class="miniBtn" data-act="buildFactory">Construire (${NUCLEAR_FACTORY_COST} or/pièce)</button>
+        </div>
+        <div class="row"><span>Bombes nucléaires</span><b>${state.nuclearBombs}</b></div>`;
+    if(state.nuclearFactories>=1){
+      html += `
+        <div class="actionsRow">
+          <input type="number" class="numInput" id="bombAmt" value="1" min="1">
+          <button class="miniBtn" data-act="buildBombs">Fabriquer (${NUCLEAR_BOMB_COST} or/pièce)</button>
+        </div>`;
+    } else {
+      html += `<span style="font-size:10px;color:var(--muted);">Nécessite au moins une usine nucléaire.</span>`;
+    }
+    if(sel && state.countries[sel].owner!=='player'){
+      const c = byId[sel];
+      if(state.nuclearBombs>=1){
+        html += `
+          <div class="neighborItem" style="margin-top:8px;">
+            <span>Frappe nucléaire sur ${c.name}</span>
+            <button class="miniBtn dangerBtn" data-act="launchNuke" data-to="${sel}">☢️ Tirer</button>
+          </div>
+          <span style="font-size:10px;color:var(--muted);">Détruit 70% de la garnison ciblée. Très coûteux, à utiliser avec parcimonie.</span>`;
+      }
+    }
+    html += `</div>`;
+    body.innerHTML = html;
+  }
+
   function renderDiplo(){
     const body = document.getElementById('diploBody');
     let html='';
@@ -1478,9 +1883,10 @@
         return;
       }
       const totalTroops = owned.reduce((s,c)=>s+state.countries[c.id].troops,0);
+      const hostile = (state.hostility[f]||0) > 0;
       html += `
         <div class="factionCard">
-          <div class="factionTitle"><span class="dot" style="background:${fac.hex}"></span>${fac.name}</div>
+          <div class="factionTitle"><span class="dot" style="background:${fac.hex}"></span>${fac.name}${hostile ? ' <span style="color:var(--crimson);font-size:10px;">(hostile)</span>' : ''}</div>
           <div class="row"><span>Territoires</span><b>${owned.length}</b></div>
           <div class="row"><span>Troupes estimées</span><b>${totalTroops}</b></div>
           <div class="row"><span>Relations</span><b>${rel}</b></div>
@@ -1490,6 +1896,7 @@
               ? `<button class="miniBtn dangerBtn" data-act="breakAlliance" data-f="${f}">Rompre l'alliance</button>`
               : `<button class="miniBtn" data-act="alliance" data-f="${f}">Proposer alliance</button>`}
             <button class="miniBtn" data-act="contract" data-f="${f}">Contrat (${CONTRACT_COST} or → +${CONTRACT_TROOPS} tr.)</button>
+            ${state.alliances[f] ? '' : `<button class="miniBtn dangerBtn" data-act="threaten" data-f="${f}">Menacer</button>`}
           </div>
         </div>`;
     });
@@ -1500,6 +1907,7 @@
     renderTop();
     renderMap();
     renderSelection();
+    renderArsenal();
     renderDiplo();
     renderLog();
   }
@@ -1526,8 +1934,90 @@
       breakAlliance(btn.dataset.f);
     } else if(act==='contract'){
       contract(btn.dataset.f);
+    } else if(act==='threaten'){
+      threatenFaction(btn.dataset.f);
+    } else if(act==='buildMissiles'){
+      const amt = parseInt(document.getElementById('missileAmt').value,10)||1;
+      buildMissiles(amt);
+    } else if(act==='launchMissile'){
+      launchMissile(btn.dataset.to);
+    } else if(act==='buildFactory'){
+      const amt = parseInt(document.getElementById('factoryAmt').value,10)||1;
+      buildNuclearFactory(amt);
+    } else if(act==='buildBombs'){
+      const amt = parseInt(document.getElementById('bombAmt').value,10)||1;
+      buildNuclearBombs(amt);
+    } else if(act==='launchNuke'){
+      launchNuclearBomb(btn.dataset.to);
     }
   });
+
+  /* ============ LOBBY 3D ============ */
+  function initLobby3D(){
+    const canvas = document.getElementById('lobbyCanvas');
+    if(!canvas || typeof THREE === 'undefined'){ return; }
+    try{
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+      camera.position.set(0, 0, 7);
+
+      const globeGeo = new THREE.IcosahedronGeometry(2.2, 3);
+      const globeMat = new THREE.MeshBasicMaterial({ color: 0xc9a227, wireframe:true, transparent:true, opacity:0.35 });
+      const globe = new THREE.Mesh(globeGeo, globeMat);
+      scene.add(globe);
+
+      const coreGeo = new THREE.IcosahedronGeometry(2.05, 1);
+      const coreMat = new THREE.MeshBasicMaterial({ color: 0x3ddbf0, wireframe:true, transparent:true, opacity:0.12 });
+      const core = new THREE.Mesh(coreGeo, coreMat);
+      scene.add(core);
+
+      // champ d'étoiles
+      const starCount = 300;
+      const starPositions = new Float32Array(starCount*3);
+      for(let i=0;i<starCount;i++){
+        const r = 12 + Math.random()*18;
+        const theta = Math.random()*Math.PI*2;
+        const phi = Math.acos((Math.random()*2)-1);
+        starPositions[i*3] = r*Math.sin(phi)*Math.cos(theta);
+        starPositions[i*3+1] = r*Math.sin(phi)*Math.sin(theta);
+        starPositions[i*3+2] = r*Math.cos(phi);
+      }
+      const starGeo = new THREE.BufferGeometry();
+      starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+      const starMat = new THREE.PointsMaterial({ color:0xe8dfc8, size:0.045, transparent:true, opacity:0.6 });
+      const stars = new THREE.Points(starGeo, starMat);
+      scene.add(stars);
+
+      function resize(){
+        const w = canvas.clientWidth || window.innerWidth;
+        const h = canvas.clientHeight || window.innerHeight;
+        renderer.setSize(w, h, false);
+        camera.aspect = w/Math.max(1,h);
+        camera.updateProjectionMatrix();
+      }
+      resize();
+      window.addEventListener('resize', resize);
+
+      const overlay = document.getElementById('startOverlay');
+      let t = 0;
+      function animate(){
+        requestAnimationFrame(animate);
+        if(overlay.classList.contains('hidden')) return;
+        t += 0.0035;
+        globe.rotation.y += 0.0016;
+        globe.rotation.x = Math.sin(t*0.4)*0.08;
+        core.rotation.y -= 0.001;
+        stars.rotation.y += 0.0002;
+        renderer.render(scene, camera);
+      }
+      animate();
+    }catch(e){
+      // WebGL indisponible : le fond reste simplement sans globe 3D, le menu fonctionne normalement
+    }
+  }
 
   /* ============ DÉMARRAGE ============ */
   const NAME_MAP = {};
@@ -1562,6 +2052,9 @@
         state = freshState(b.dataset.home, selectedDifficulty);
         overlay.classList.add('hidden');
         addLog(`Fondation de votre nation à partir de <b>${NAME_MAP[b.dataset.home]}</b> (difficulté : ${DIFFICULTIES[selectedDifficulty].label}).`, true);
+        const profile = loadProfile();
+        profile.gamesPlayed += 1;
+        saveProfile(profile);
         saveGame();
         render();
         startLoop();
@@ -1599,6 +2092,31 @@
     document.getElementById('leaderboardOverlay').classList.add('hidden');
   });
 
+  document.getElementById('btnProfile').addEventListener('click', ()=>{
+    renderProfileOverlay();
+    document.getElementById('profileOverlay').classList.remove('hidden');
+  });
+  document.getElementById('btnProfileSave').addEventListener('click', ()=>{
+    const profile = loadProfile();
+    profile.pseudo = document.getElementById('profilePseudoInput').value.trim().slice(0,24);
+    if(flagDraft) profile.flag = flagDraft.slice();
+    saveProfile(profile);
+    document.getElementById('profileOverlay').classList.add('hidden');
+    renderTopbarFlag();
+    if(state) render();
+  });
+  document.getElementById('btnProfileClose').addEventListener('click', ()=>{
+    document.getElementById('profileOverlay').classList.add('hidden');
+  });
+  document.getElementById('btnFlagRandom').addEventListener('click', ()=>{
+    flagDraft = flagDraft.map(()=>FLAG_PALETTE[Math.floor(Math.random()*FLAG_PALETTE.length)]);
+    renderFlagEditor();
+  });
+  document.getElementById('btnFlagReset').addEventListener('click', ()=>{
+    flagDraft = defaultFlag();
+    renderFlagEditor();
+  });
+
   document.getElementById('btnContinue').addEventListener('click', ()=>{
     if(loadGame()){
       document.getElementById('startOverlay').classList.add('hidden');
@@ -1625,11 +2143,37 @@
     if(loadGame()){ render(); if(!state.over && !tickTimer) startLoop(); }
   });
   document.getElementById('btnReset').addEventListener('click', ()=>{
-    const ok = window.confirm('Recommencer effacera la partie en cours. Continuer ?');
-    if(!ok) return;
+    if(!state){
+      // rien à perdre : pas de partie en cours
+      stopLoop();
+      clearSave();
+      showStartOverlay();
+      return;
+    }
+    const nationName = byId[state.home].name;
+    document.getElementById('confirmResetName').textContent = nationName;
+    document.getElementById('confirmResetInput').value = '';
+    document.getElementById('confirmResetError').textContent = '';
+    document.getElementById('confirmResetOverlay').classList.remove('hidden');
+    document.getElementById('confirmResetInput').focus();
+  });
+  document.getElementById('btnConfirmResetCancel').addEventListener('click', ()=>{
+    document.getElementById('confirmResetOverlay').classList.add('hidden');
+  });
+  document.getElementById('btnConfirmResetGo').addEventListener('click', ()=>{
+    const nationName = state ? byId[state.home].name : '';
+    const typed = document.getElementById('confirmResetInput').value.trim();
+    if(typed.toLowerCase() !== nationName.toLowerCase()){
+      document.getElementById('confirmResetError').textContent = `Le nom tapé ne correspond pas à "${nationName}".`;
+      return;
+    }
+    document.getElementById('confirmResetOverlay').classList.add('hidden');
     stopLoop();
     clearSave();
     showStartOverlay();
+  });
+  document.getElementById('confirmResetInput').addEventListener('keydown', (e)=>{
+    if(e.key==='Enter') document.getElementById('btnConfirmResetGo').click();
   });
 
   const rotateHintClose = document.getElementById('rotateHintClose');
@@ -1655,6 +2199,8 @@
   });
 
   buildMap();
+  initLobby3D();
+  renderTopbarFlag();
   let alreadySeenTuto = false;
   try{ alreadySeenTuto = !!localStorage.getItem(TUTO_KEY); }catch(e){}
   if(alreadySeenTuto){
