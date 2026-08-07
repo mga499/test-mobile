@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
   :root{
     --bg:#171a13;
@@ -238,6 +239,7 @@
     <div class="stat">TERRITOIRES<b id="statTerr">0/170</b></div>
     <div class="stat">TOUR<b id="statTick">0</b></div>
     <div class="stat">CHRONO<b id="statTime">00:00:00</b></div>
+    <div class="stat">CIVILS TUÉS<b id="statCivilians">0</b></div>
     <div class="actions">
       <button id="btnHelp">Comment jouer ?</button>
       <button id="btnProfile">Profil</button>
@@ -293,6 +295,8 @@
         <p><b style="color:var(--brass);">Diplomatie :</b> avec chacune des 3 factions IA, vous pouvez proposer une <b>alliance</b> (elles ne vous attaqueront plus) ou un <b>contrat commercial</b> (de l'or contre des troupes, et de meilleures relations). Attention : une alliance non entretenue se dégrade avec le temps et finit par se rompre d'elle-même si vos relations tombent trop bas — pensez à renouveler les contrats commerciaux pour la maintenir. Vous pouvez aussi <b>menacer</b> une faction non alliée pour faire monter les tensions et préparer la guerre : ses relations avec vous chutent et elle devient hostile, prête à vous attaquer en priorité.</p>
         <p><b style="color:var(--brass);">Arsenal :</b> construisez des <b>missiles</b> contre de l'or et frappez n'importe quel territoire de la carte, même non adjacent, pour affaiblir sa garnison à distance sans le capturer.</p>
         <p><b style="color:var(--brass);">Programme nucléaire :</b> construisez une <b>usine nucléaire</b> (très coûteuse), puis fabriquez des <b>bombes nucléaires</b> pour détruire 70% de la garnison d'un territoire ciblé en une seule frappe. Un moyen radical mais ruineux de faire pencher la balance.</p>
+        <p><b style="color:var(--brass);">Population civile :</b> chaque territoire a une population qui peut être tuée par les combats, les missiles et surtout le nucléaire. Construisez des <b>bunkers</b> sur vos territoires pour protéger vos civils. Attention : plus vous causez de morts civiles, plus votre trésor subit une <b>fuite d'argent chaque tour</b> (coût politique de la guerre) — visible en haut de l'écran.</p>
+        <p><b style="color:var(--brass);">Forces spécialisées :</b> sur vos territoires, construisez des <b>chars</b>, <b>navires de guerre</b>, <b>hélicoptères</b> et <b>avions de chasse</b>. Chaque unité renforce durablement la puissance de ce territoire, à l'attaque comme à la défense, sans jamais être "envoyée" ni perdue (sauf si le territoire tombe). Les IA en construisent aussi sur leurs propres territoires — un bonus de défense apparaît sur les cibles bien équipées.</p>
         <p><b style="color:var(--brass);">Le temps qui passe :</b> le jeu avance tout seul, tour après tour : vous gagnez de l'or, vos garnisons se renforcent un peu, et les IA recrutent ou attaquent de leur côté.</p>
         <p><b style="color:var(--brass);">Sauvegarde :</b> la partie est enregistrée automatiquement dans votre navigateur. Vous pouvez aussi sauvegarder, charger ou recommencer depuis les boutons en haut de l'écran.</p>
       </div>
@@ -317,6 +321,65 @@
         <div class="homeGrid tilt3d" id="difficultyGrid" style="grid-template-columns:repeat(3,1fr);"></div>
       </div>
       <div class="homeGrid tilt3d" id="homeGrid"></div>
+      <div class="continueRow" style="margin-top:18px;border-top:1px dashed var(--line);padding-top:16px;">
+        <button id="btnOpenMultiplayer" style="background:var(--panel-2);border:1px solid var(--brass-dim);color:var(--brass);border-radius:5px;padding:10px 20px;">🌐 Multijoueur en ligne</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MULTIPLAYER LOBBY -->
+  <div class="overlay hidden" id="mpOverlay">
+    <div class="overlayBox" style="max-width:560px;text-align:left;">
+      <h1 style="text-align:center;">Multijoueur</h1>
+
+      <div id="mpHome">
+        <p style="font-size:12px;color:var(--muted);text-align:center;margin-bottom:20px;">Jouez à plusieurs, chacun chez soi, en temps réel.</p>
+        <div style="margin-bottom:16px;">
+          <label style="font-size:11px;color:var(--brass);letter-spacing:.08em;text-transform:uppercase;display:block;margin-bottom:6px;">Votre pseudo</label>
+          <input type="text" id="mpPseudoInput" maxlength="24" placeholder="Votre pseudo"
+            style="width:100%;background:var(--bg-deep);border:1px solid var(--line);color:var(--parchment);padding:10px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:14px;">
+        </div>
+        <div class="continueRow" style="margin-bottom:18px;">
+          <button class="primaryBtn" id="btnMpCreate" style="border-radius:5px;">Créer une partie</button>
+        </div>
+        <div style="text-align:center;font-size:11px;color:var(--muted);margin-bottom:10px;">— ou —</div>
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <input type="text" id="mpJoinCode" maxlength="6" placeholder="CODE"
+            style="flex:1;text-align:center;letter-spacing:.2em;text-transform:uppercase;background:var(--bg-deep);border:1px solid var(--line);color:var(--parchment);padding:10px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:16px;">
+          <button class="primaryBtn" id="btnMpJoin" style="border-radius:5px;">Rejoindre</button>
+        </div>
+        <p id="mpError" style="color:var(--crimson);font-size:11px;text-align:center;min-height:14px;"></p>
+      </div>
+
+      <div id="mpRoom" style="display:none;">
+        <div style="text-align:center;margin-bottom:16px;">
+          <div style="font-size:11px;color:var(--muted);">CODE DU SALON</div>
+          <div id="mpRoomCode" style="font-size:28px;letter-spacing:.25em;color:var(--brass);font-weight:600;">——————</div>
+        </div>
+
+        <div id="mpDiffBlock" style="margin-bottom:16px;">
+          <h3 style="font-size:11px;color:var(--brass);letter-spacing:.08em;text-transform:uppercase;margin:0 0 8px;">Difficulté (hôte)</h3>
+          <div class="homeGrid" id="mpDifficultyGrid" style="grid-template-columns:repeat(3,1fr);"></div>
+        </div>
+
+        <h3 style="font-size:11px;color:var(--brass);letter-spacing:.08em;text-transform:uppercase;margin:0 0 8px;">Choisissez votre camp</h3>
+        <div id="mpSlots" style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px;"></div>
+
+        <div id="mpHomePickBlock" style="display:none;margin-bottom:18px;">
+          <h3 style="font-size:11px;color:var(--brass);letter-spacing:.08em;text-transform:uppercase;margin:0 0 8px;">Votre nation de départ</h3>
+          <div class="homeGrid" id="mpHomeGrid" style="grid-template-columns:repeat(3,1fr);"></div>
+        </div>
+
+        <div class="continueRow">
+          <button class="primaryBtn" id="btnMpStart" style="border-radius:5px;display:none;">Lancer la partie</button>
+          <button id="btnMpLeave" style="background:var(--panel-2);border:1px solid var(--line);color:var(--parchment);border-radius:5px;">Quitter le salon</button>
+        </div>
+        <p id="mpStatus" style="color:var(--muted);font-size:11px;text-align:center;margin-top:14px;"></p>
+      </div>
+
+      <div class="continueRow" style="margin-top:16px;">
+        <button id="btnMpClose" style="background:var(--panel-2);border:1px solid var(--line);color:var(--parchment);border-radius:5px;">Fermer</button>
+      </div>
     </div>
   </div>
 
@@ -866,7 +929,7 @@
     moyen:    { label:'Moyen',    homeBonus:30, startGold:400, aiRecruitChance:0.65, defenseFactionMult:1.15, defenseNeutralMult:0.90, attackerBonusMult:0.90, passiveRegen:1, graceTicks:4, aiSentFraction:0.55, aiRecruitMin:6,  aiRecruitMax:8  },
     difficile:{ label:'Difficile',homeBonus:15, startGold:300, aiRecruitChance:0.50, defenseFactionMult:1.20, defenseNeutralMult:1.00, attackerBonusMult:1.00, passiveRegen:0, graceTicks:2, aiSentFraction:0.60, aiRecruitMin:7,  aiRecruitMax:10 },
     expert:   { label:'Expert',   homeBonus:5,  startGold:200, aiRecruitChance:0.40, defenseFactionMult:1.30, defenseNeutralMult:1.10, attackerBonusMult:1.10, passiveRegen:0, graceTicks:0, aiSentFraction:0.65, aiRecruitMin:8,  aiRecruitMax:14 },
-    impossible:{ label:'Impossible', homeBonus:0, startGold:100, aiRecruitChance:0.30, defenseFactionMult:1.45, defenseNeutralMult:1.25, attackerBonusMult:1.25, passiveRegen:0, graceTicks:0, aiSentFraction:0.75, aiRecruitMin:10, aiRecruitMax:18 }
+    impossible:{ label:'Impossible', homeBonus:0, startGold:50, aiRecruitChance:0.22, defenseFactionMult:1.60, defenseNeutralMult:1.35, attackerBonusMult:1.35, passiveRegen:0, graceTicks:0, aiSentFraction:0.85, aiRecruitMin:12, aiRecruitMax:22 }
   };
   let selectedDifficulty = 'moyen';
 
@@ -880,6 +943,28 @@
   const NUCLEAR_FACTORY_COST = 1000000;
   const NUCLEAR_BOMB_COST = 100000;
   const NUCLEAR_DAMAGE_RATIO = 0.70;
+  const POP_MULTIPLIER = 120; // population civile (en milliers) = troupes * ce facteur
+  const BUNKER_COST = 60;
+  const BUNKER_STEP = 0.08, BUNKER_CAP = 0.70;           // protection contre attaques/missiles
+  const BUNKER_STEP_NUKE = 0.04, BUNKER_CAP_NUKE = 0.35; // les bunkers protègent moins bien du nucléaire
+  const CIVILIAN_UPKEEP_RATE = 0.005; // or perdu par seconde de jeu et par civil tué (cumulé)
+  const CIVILIAN_UPKEEP_CAP = 250;    // plafond de la pénalité par tour
+
+  // Unités spécialisées (uniquement pour le joueur) : coût de construction et bonus de puissance par unité
+  const UNIT_TYPES = {
+    tanks:       { label:'Chars',              cost:25, bonus:0.15, icon:'🛡️' },
+    warships:    { label:'Navires de guerre',  cost:35, bonus:0.12, icon:'🚢' },
+    helicopters: { label:'Hélicoptères',       cost:20, bonus:0.10, icon:'🚁' },
+    planes:      { label:'Avions de chasse',   cost:30, bonus:0.13, icon:'✈️' }
+  };
+  const MAX_UNIT_BONUS = 3.0; // plafond du bonus cumulé (+300%)
+
+  function unitBonusMultiplier(cs){
+    if(!cs) return 1;
+    let b = 0;
+    for(const key in UNIT_TYPES){ b += (cs[key]||0) * UNIT_TYPES[key].bonus; }
+    return 1 + Math.min(MAX_UNIT_BONUS, b);
+  }
   const TICK_MS = 5000;
 
   const byId = {};
@@ -897,7 +982,7 @@
     const diff = DIFFICULTIES[difficulty];
     const countries = {};
     COUNTRIES.forEach(c=>{
-      countries[c.id] = { owner: INITIAL_OWNERS[c.id], troops: c.troops };
+      countries[c.id] = { owner: INITIAL_OWNERS[c.id], troops: c.troops, population: c.troops*POP_MULTIPLIER, bunkers: 0 };
     });
     countries[homeId].owner = 'player';
     countries[homeId].troops += diff.homeBonus;
@@ -912,6 +997,8 @@
       missiles: 0,
       nuclearFactories: 0,
       nuclearBombs: 0,
+      civilianDeathsCaused: 0,
+      totalCivilianDeaths: 0,
       selected: null,
       tick: 0,
       over: false,
@@ -1000,6 +1087,21 @@
   }
 
   /* ============ COMBAT ============ */
+  // Applique des pertes civiles sur un territoire, atténuées par ses bunkers
+  function applyCivilianLoss(countryId, baseRatio, bunkerStep, bunkerCap, causedByPlayer){
+    const cs = state.countries[countryId];
+    if(!cs || cs.population<=0) return 0;
+    const bunkers = cs.bunkers||0;
+    const protection = Math.min(bunkerCap, bunkers*bunkerStep);
+    const effectiveRatio = baseRatio*(1-protection);
+    const loss = Math.max(0, Math.round(cs.population*effectiveRatio));
+    if(loss<=0) return 0;
+    cs.population = Math.max(0, cs.population-loss);
+    state.totalCivilianDeaths += loss;
+    if(causedByPlayer) state.civilianDeathsCaused += loss;
+    return loss;
+  }
+
   function resolveCombat(fromC, toC, sentTroopsRaw, attacker){
     const fromState = state.countries[fromC.id];
     const toState = state.countries[toC.id];
@@ -1011,10 +1113,15 @@
     if(toState.owner==='neutral') defenseMult = diff.defenseNeutralMult;
     if(attacker==='player') defenseMult *= diff.attackerBonusMult;
 
-    const atkPower = sent * (0.85 + Math.random()*0.3);
-    const defPower = toState.troops * (0.85 + Math.random()*0.3) * defenseMult;
+    const atkPower = sent * (0.85 + Math.random()*0.3) * unitBonusMultiplier(fromState);
+    const defPower = toState.troops * (0.85 + Math.random()*0.3) * defenseMult * unitBonusMultiplier(toState);
 
     fromState.troops -= sent;
+
+    const civLoss = applyCivilianLoss(toC.id, 0.01+Math.random()*0.02, BUNKER_STEP, BUNKER_CAP, attacker==='player');
+    if(civLoss>0 && (attacker==='player' || toState.owner==='player')){
+      addLog(`${civLoss.toLocaleString('fr-FR')} civils tués dans les combats à ${toC.name}.`);
+    }
 
     if(atkPower > defPower){
       const survivors = Math.max(1, Math.round(sent * (1 - defPower/atkPower)));
@@ -1169,6 +1276,38 @@
     render();
   }
 
+  function buildBunker(countryId, amount){
+    if(state.over) return;
+    const cs = state.countries[countryId];
+    if(!cs || cs.owner!=='player') return;
+    amount = Math.max(1, Math.floor(amount)||1);
+    const maxAffordable = Math.floor(state.gold.player/BUNKER_COST);
+    if(maxAffordable<=0){ addLog('Trésor insuffisant pour construire un bunker.'); return; }
+    amount = Math.min(amount, maxAffordable);
+    state.gold.player -= amount*BUNKER_COST;
+    cs.bunkers += amount;
+    addLog(`Construction de <b>${amount}</b> bunker(s) à ${byId[countryId].name} pour protéger la population civile.`);
+    saveGame();
+    render();
+  }
+
+  function buildUnit(unitType, countryId, amount){
+    if(state.over) return;
+    const def = UNIT_TYPES[unitType];
+    if(!def) return;
+    const cs = state.countries[countryId];
+    if(!cs || cs.owner!=='player') return;
+    amount = Math.max(1, Math.floor(amount)||1);
+    const maxAffordable = Math.floor(state.gold.player/def.cost);
+    if(maxAffordable<=0){ addLog(`Trésor insuffisant pour construire : ${def.label}.`); return; }
+    amount = Math.min(amount, maxAffordable);
+    state.gold.player -= amount*def.cost;
+    cs[unitType] = (cs[unitType]||0) + amount;
+    addLog(`Construction de <b>${amount}</b> ${def.label.toLowerCase()} à ${byId[countryId].name}.`);
+    saveGame();
+    render();
+  }
+
   function launchMissile(targetId){
     if(state.over) return;
     if(state.missiles<1){ addLog('Aucun missile disponible.'); return; }
@@ -1189,7 +1328,8 @@
     state.missiles -= 1;
     const loss = Math.max(1, Math.round(toState.troops * (0.25 + Math.random()*0.15)));
     toState.troops = Math.max(1, toState.troops - loss);
-    addLog(`Frappe de missile sur <b>${toC.name}</b> : -${loss} troupes. Il reste ${state.missiles} missile(s).`, true);
+    const civLoss = applyCivilianLoss(targetId, 0.03+Math.random()*0.03, BUNKER_STEP, BUNKER_CAP, true);
+    addLog(`Frappe de missile sur <b>${toC.name}</b> : -${loss} troupes${civLoss>0 ? `, ${civLoss.toLocaleString('fr-FR')} civils tués` : ''}. Il reste ${state.missiles} missile(s).`, true);
     saveGame();
     render();
   }
@@ -1228,7 +1368,7 @@
     if(!toState || toState.owner==='player') return;
     const toC = byId[targetId];
 
-    const ok = window.confirm(`Lancer une frappe nucléaire sur ${toC.name} ? Cela détruira 70% de sa garnison. Cette action est irréversible.`);
+    const ok = window.confirm(`Lancer une frappe nucléaire sur ${toC.name} ? Cela détruira 70% de sa garnison et fera de lourdes pertes civiles. Cette action est irréversible.`);
     if(!ok) return;
 
     if(FACTIONS[toState.owner] && state.alliances[toState.owner]){
@@ -1242,7 +1382,8 @@
     state.nuclearBombs -= 1;
     const loss = Math.max(1, Math.round(toState.troops * NUCLEAR_DAMAGE_RATIO));
     toState.troops = Math.max(1, toState.troops - loss);
-    addLog(`☢️ <b>Frappe nucléaire sur ${toC.name}</b> : -${loss} troupes (70% de sa garnison anéantie). Il reste ${state.nuclearBombs} bombe(s).`, true);
+    const civLoss = applyCivilianLoss(targetId, 0.40+Math.random()*0.20, BUNKER_STEP_NUKE, BUNKER_CAP_NUKE, true);
+    addLog(`☢️ <b>Frappe nucléaire sur ${toC.name}</b> : -${loss} troupes${civLoss>0 ? `, ${civLoss.toLocaleString('fr-FR')} civils tués` : ''}. Il reste ${state.nuclearBombs} bombe(s).`, true);
     saveGame();
     render();
   }
@@ -1260,10 +1401,23 @@
     if(r<recruitChance && state.gold[f]>=RECRUIT_COST){
       const target = owned[Math.floor(Math.random()*owned.length)];
       const cs = state.countries[target.id];
-      const affordable = Math.floor(state.gold[f]/RECRUIT_COST);
-      const amount = Math.max(1, Math.min(affordable, diff.aiRecruitMin+Math.floor(Math.random()*(diff.aiRecruitMax-diff.aiRecruitMin+1))));
-      state.gold[f] -= amount*RECRUIT_COST;
-      cs.troops += amount;
+      if(Math.random() < 0.3){
+        // investit parfois dans des forces spécialisées plutôt que de la troupe classique
+        const unitKeys = Object.keys(UNIT_TYPES);
+        const unitType = unitKeys[Math.floor(Math.random()*unitKeys.length)];
+        const cost = UNIT_TYPES[unitType].cost;
+        const affordable = Math.floor(state.gold[f]/cost);
+        if(affordable>0){
+          const amount = Math.max(1, Math.min(affordable, 2+Math.floor(Math.random()*4)));
+          state.gold[f] -= amount*cost;
+          cs[unitType] = (cs[unitType]||0) + amount;
+        }
+      } else {
+        const affordable = Math.floor(state.gold[f]/RECRUIT_COST);
+        const amount = Math.max(1, Math.min(affordable, diff.aiRecruitMin+Math.floor(Math.random()*(diff.aiRecruitMax-diff.aiRecruitMin+1))));
+        state.gold[f] -= amount*RECRUIT_COST;
+        cs.troops += amount;
+      }
     } else {
       const candidates = [];
       owned.forEach(c=>{
@@ -1312,6 +1466,11 @@
     if(diff.passiveRegen>0){
       ownedList('player').forEach(c=>{ state.countries[c.id].troops += diff.passiveRegen; });
     }
+    // coût politique/économique des victimes civiles causées par le joueur
+    if(state.civilianDeathsCaused>0){
+      const penalty = Math.min(CIVILIAN_UPKEEP_CAP, Math.round(state.civilianDeathsCaused*CIVILIAN_UPKEEP_RATE));
+      if(penalty>0) state.gold.player = Math.max(0, state.gold.player - penalty);
+    }
     ['crimson','violet','amber'].forEach(f=>{ if(!state.over) aiTurn(f); });
     if(!checkWinLose()){
       saveGame();
@@ -1343,6 +1502,15 @@
       if(!state.hostility) state.hostility = { crimson:0, violet:0, amber:0 };
       if(typeof state.nuclearFactories !== 'number') state.nuclearFactories = 0;
       if(typeof state.nuclearBombs !== 'number') state.nuclearBombs = 0;
+      if(typeof state.civilianDeathsCaused !== 'number') state.civilianDeathsCaused = 0;
+      if(typeof state.totalCivilianDeaths !== 'number') state.totalCivilianDeaths = 0;
+      COUNTRIES.forEach(c=>{
+        const cs = state.countries[c.id];
+        if(cs){
+          if(typeof cs.population !== 'number') cs.population = cs.troops*POP_MULTIPLIER;
+          if(typeof cs.bunkers !== 'number') cs.bunkers = 0;
+        }
+      });
       return true;
     }catch(e){ return false; }
   }
@@ -1755,6 +1923,8 @@
     document.getElementById('statTime').textContent = (state.over && state.finalElapsedMs!=null)
       ? formatDuration(state.finalElapsedMs)
       : formatDuration(Date.now() - (state.startTime || Date.now()));
+    const civPenalty = Math.min(CIVILIAN_UPKEEP_CAP, Math.round((state.civilianDeathsCaused||0)*CIVILIAN_UPKEEP_RATE));
+    document.getElementById('statCivilians').textContent = `${(state.civilianDeathsCaused||0).toLocaleString('fr-FR')}${civPenalty>0 ? ` (-${civPenalty} or/tour)` : ''}`;
   }
 
   function renderLog(){
@@ -1777,6 +1947,8 @@
         <span class="tag" style="background:${colorOf(cs.owner)}22;color:${colorOf(cs.owner)};border:1px solid ${colorOf(cs.owner)}66;">${labelOf(cs.owner)}</span>
         <div class="row"><span>Troupes</span><b>${cs.troops}</b></div>
         <div class="row"><span>Revenu / tour</span><b>${c.income} or</b></div>
+        <div class="row"><span>Population civile</span><b>${(cs.population||0).toLocaleString('fr-FR')} k</b></div>
+        <div class="row"><span>Bunkers</span><b>${cs.bunkers||0} (protection ${Math.round(Math.min(BUNKER_CAP, (cs.bunkers||0)*BUNKER_STEP)*100)}%)</b></div>
       </div>`;
 
     if(cs.owner==='player'){
@@ -1787,15 +1959,41 @@
             <input type="number" class="numInput" id="recruitAmt" value="10" min="1">
             <button class="primaryBtn" data-act="recruit" data-id="${sel}">Recruter (${RECRUIT_COST} or/tr.)</button>
           </div>
+        </div>
+        <div class="neighborBox">
+          <h3 style="margin-bottom:6px;">Construire un bunker</h3>
+          <div class="actionsRow">
+            <input type="number" class="numInput" id="bunkerAmt" value="1" min="1">
+            <button class="miniBtn" data-act="buildBunker" data-id="${sel}">Construire (${BUNKER_COST} or/pièce)</button>
+          </div>
+          <span style="font-size:10px;color:var(--muted);">Protège la population civile de ce territoire lors des attaques, missiles et frappes nucléaires.</span>
+        </div>
+        <div class="neighborBox">
+          <h3 style="margin-bottom:6px;">Forces spécialisées</h3>
+          ${Object.keys(UNIT_TYPES).map(key=>{
+            const def = UNIT_TYPES[key];
+            const count = cs[key]||0;
+            return `
+              <div class="neighborItem">
+                <span>${def.icon} ${def.label} <span style="color:var(--brass);">(${count})</span></span>
+                <span>
+                  <input type="number" class="numInput" style="width:44px;" id="unitAmt-${key}" value="1" min="1">
+                  <button class="miniBtn" data-act="buildUnit" data-unit="${key}" data-id="${sel}">+ (${def.cost} or)</button>
+                </span>
+              </div>`;
+          }).join('')}
+          <span style="font-size:10px;color:var(--muted);">Chaque unité renforce la puissance de ce territoire à l'attaque comme à la défense (plafonné à +300%).</span>
         </div>`;
       const targets = adjMap[sel].filter(nId=>state.countries[nId].owner!=='player');
       if(targets.length){
         html += `<div class="neighborBox"><h3>Cibles d'attaque</h3>`;
         targets.forEach(nId=>{
           const n = byId[nId], ns = state.countries[nId];
+          const bonus = unitBonusMultiplier(ns);
+          const bonusTxt = bonus>1 ? ` <span style="color:var(--crimson);">+${Math.round((bonus-1)*100)}%</span>` : '';
           html += `
             <div class="neighborItem">
-              <span>${n.name} <span style="color:${colorOf(ns.owner)}">(${ns.troops} tr.)</span></span>
+              <span>${n.name} <span style="color:${colorOf(ns.owner)}">(${ns.troops} tr.${bonusTxt})</span></span>
               <span>
                 <input type="number" class="numInput" style="width:44px;" id="atk-${sel}-${nId}" value="${Math.max(1,cs.troops-1)}" min="1">
                 <button class="miniBtn dangerBtn" data-act="attack" data-from="${sel}" data-to="${nId}">Attaquer</button>
@@ -1959,6 +2157,13 @@
     if(act==='recruit'){
       const amt = parseInt(document.getElementById('recruitAmt').value,10)||1;
       recruit(btn.dataset.id, amt);
+    } else if(act==='buildBunker'){
+      const amt = parseInt(document.getElementById('bunkerAmt').value,10)||1;
+      buildBunker(btn.dataset.id, amt);
+    } else if(act==='buildUnit'){
+      const input = document.getElementById(`unitAmt-${btn.dataset.unit}`);
+      const amt = parseInt(input.value,10)||1;
+      buildUnit(btn.dataset.unit, btn.dataset.id, amt);
     } else if(act==='attack'){
       const input = document.getElementById(`atk-${btn.dataset.from}-${btn.dataset.to}`);
       const amt = parseInt(input.value,10)||1;
@@ -2061,6 +2266,254 @@
       // WebGL indisponible : le fond reste simplement sans globe 3D, le menu fonctionne normalement
     }
   }
+
+  /* ============ MULTIJOUEUR (salon en ligne, via Supabase) ============ */
+  const SUPABASE_URL = 'https://nvuclibrcpzmzwaghupa.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_1GtpmhW02mQPFr1wTraXTA_Laz8aWFa';
+  let sb = null;
+  try{
+    if(window.supabase && window.supabase.createClient){
+      sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    }
+  }catch(e){ sb = null; }
+
+  const MP_CLIENT_ID = (()=>{
+    try{
+      let id = localStorage.getItem('empireMondialClientId');
+      if(!id){ id = 'c_' + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem('empireMondialClientId', id); }
+      return id;
+    }catch(e){ return 'c_' + Math.random().toString(36).slice(2); }
+  })();
+
+  // Les 4 camps jouables en multijoueur : l'empire "modeste" (départ à 1 pays, comme en solo)
+  // et les 3 empires déjà établis. Chacun peut être pris par un humain, sinon reste IA.
+  const MP_SLOTS = [
+    { key:'player',  label:'Votre Empire (départ modeste)' },
+    { key:'crimson', label:'Bloc Cramoisi (empire établi)' },
+    { key:'violet',  label:'Syndicat Violet (empire établi)' },
+    { key:'amber',   label:'Confédération Ambre (empire établi)' }
+  ];
+
+  const mp = {
+    roomCode:null, roomId:null, channel:null, isHost:false,
+    myPseudo:'', mySlot:null, myHome:null, difficulty:'moyen',
+    players:[], pollTimer:null
+  };
+
+  function mpGenerateCode(){
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let s='';
+    for(let i=0;i<6;i++) s += chars[Math.floor(Math.random()*chars.length)];
+    return s;
+  }
+
+  function mpShowError(msg){
+    document.getElementById('mpError').textContent = msg;
+  }
+
+  function openMultiplayerOverlay(){
+    document.getElementById('mpError').textContent = '';
+    document.getElementById('mpHome').style.display = 'block';
+    document.getElementById('mpRoom').style.display = 'none';
+    const profile = loadProfile();
+    document.getElementById('mpPseudoInput').value = profile.pseudo || '';
+    document.getElementById('mpOverlay').classList.remove('hidden');
+  }
+  function closeMultiplayerOverlay(){
+    document.getElementById('mpOverlay').classList.add('hidden');
+  }
+
+  async function mpCreateRoom(){
+    if(!sb){ mpShowError('Connexion Supabase indisponible.'); return; }
+    const pseudo = (document.getElementById('mpPseudoInput').value||'').trim().slice(0,24) || 'Anonyme';
+    mp.myPseudo = pseudo;
+    const code = mpGenerateCode();
+    const initialPlayers = [];
+    try{
+      const { data, error } = await sb.from('game_rooms').insert({
+        code, difficulty:'moyen', started:false,
+        host_client_id: MP_CLIENT_ID,
+        players: initialPlayers,
+        state: null
+      }).select().single();
+      if(error) throw error;
+      mp.roomId = data.id;
+      mp.roomCode = data.code;
+      mp.isHost = true;
+      mp.difficulty = data.difficulty;
+      mp.players = data.players || [];
+      enterRoomUI();
+      mpSubscribe();
+    }catch(e){
+      mpShowError("Impossible de créer le salon (vérifiez la table Supabase).");
+    }
+  }
+
+  async function mpJoinRoom(){
+    if(!sb){ mpShowError('Connexion Supabase indisponible.'); return; }
+    const pseudo = (document.getElementById('mpPseudoInput').value||'').trim().slice(0,24) || 'Anonyme';
+    const code = (document.getElementById('mpJoinCode').value||'').trim().toUpperCase();
+    if(!code){ mpShowError('Entrez un code de salon.'); return; }
+    mp.myPseudo = pseudo;
+    try{
+      const { data, error } = await sb.from('game_rooms').select('*').eq('code', code).single();
+      if(error || !data){ mpShowError('Salon introuvable.'); return; }
+      if(data.started){ mpShowError('Cette partie a déjà commencé.'); return; }
+      mp.roomId = data.id;
+      mp.roomCode = data.code;
+      mp.isHost = (data.host_client_id === MP_CLIENT_ID);
+      mp.difficulty = data.difficulty;
+      mp.players = data.players || [];
+      enterRoomUI();
+      mpSubscribe();
+    }catch(e){
+      mpShowError('Salon introuvable.');
+    }
+  }
+
+  function enterRoomUI(){
+    document.getElementById('mpHome').style.display = 'none';
+    document.getElementById('mpRoom').style.display = 'block';
+    document.getElementById('mpRoomCode').textContent = mp.roomCode;
+    renderMpDifficultyGrid();
+    renderMpRoom();
+  }
+
+  function renderMpDifficultyGrid(){
+    const grid = document.getElementById('mpDifficultyGrid');
+    grid.innerHTML = Object.keys(DIFFICULTIES).map(key=>{
+      const d = DIFFICULTIES[key];
+      const sel = key===mp.difficulty ? ' selected' : '';
+      return `<button class="diffBtn${sel}" data-diff="${key}" ${mp.isHost?'':'disabled'}>${d.label}</button>`;
+    }).join('');
+    if(mp.isHost){
+      grid.querySelectorAll('button').forEach(b=>{
+        b.addEventListener('click', async ()=>{
+          mp.difficulty = b.dataset.diff;
+          renderMpDifficultyGrid();
+          await sb.from('game_rooms').update({ difficulty: mp.difficulty, updated_at:new Date().toISOString() }).eq('id', mp.roomId);
+        });
+      });
+    }
+  }
+
+  function renderMpRoom(){
+    const slotsEl = document.getElementById('mpSlots');
+    slotsEl.innerHTML = MP_SLOTS.map(slot=>{
+      const occupant = mp.players.find(p=>p.slot===slot.key);
+      const mine = occupant && occupant.clientId===MP_CLIENT_ID;
+      let right;
+      if(occupant){
+        right = `<span style="color:${mine?'var(--brass)':'var(--parchment)'};font-size:12px;">${occupant.pseudo}${mine?' (vous)':''}</span>`;
+        if(mine) right += ` <button class="miniBtn" data-leaveslot="1" style="margin-left:8px;">Libérer</button>`;
+      } else {
+        right = `<button class="miniBtn" data-claim="${slot.key}">Choisir</button>`;
+      }
+      return `<div class="neighborItem"><span>${slot.label}</span><span>${right}</span></div>`;
+    }).join('');
+    slotsEl.querySelectorAll('button[data-claim]').forEach(btn=>{
+      btn.addEventListener('click', ()=>mpClaimSlot(btn.dataset.claim));
+    });
+    slotsEl.querySelectorAll('button[data-leaveslot]').forEach(btn=>{
+      btn.addEventListener('click', ()=>mpClaimSlot(null));
+    });
+
+    const mySlotEntry = mp.players.find(p=>p.clientId===MP_CLIENT_ID);
+    mp.mySlot = mySlotEntry ? mySlotEntry.slot : null;
+
+    const homeBlock = document.getElementById('mpHomePickBlock');
+    if(mp.mySlot==='player'){
+      homeBlock.style.display = 'block';
+      const homeGrid = document.getElementById('mpHomeGrid');
+      homeGrid.innerHTML = HOME_CANDIDATES.map(id=>{
+        const taken = mp.players.some(p=>p.homeId===id && p.clientId!==MP_CLIENT_ID);
+        const sel = mySlotEntry && mySlotEntry.homeId===id ? ' selected' : '';
+        return `<button class="diffBtn${sel}" data-home="${id}" ${taken?'disabled':''}>${NAME_MAP[id]}</button>`;
+      }).join('');
+      homeGrid.querySelectorAll('button:not(:disabled)').forEach(b=>{
+        b.addEventListener('click', ()=>mpSetHome(b.dataset.home));
+      });
+    } else {
+      homeBlock.style.display = 'none';
+    }
+
+    const statusEl = document.getElementById('mpStatus');
+    const claimedCount = mp.players.length;
+    statusEl.textContent = `${claimedCount} joueur(s) connecté(s) · les camps non choisis seront pris par l'IA au lancement.`;
+
+    const startBtn = document.getElementById('btnMpStart');
+    startBtn.style.display = mp.isHost ? 'inline-block' : 'none';
+    const ready = !mySlotEntry || mySlotEntry.slot!=='player' || !!mySlotEntry.homeId;
+    startBtn.disabled = false;
+  }
+
+  async function mpClaimSlot(slotKey){
+    let players = mp.players.filter(p=>p.clientId!==MP_CLIENT_ID);
+    if(slotKey){
+      if(players.some(p=>p.slot===slotKey)) return; // déjà pris entre-temps
+      players.push({ clientId:MP_CLIENT_ID, pseudo:mp.myPseudo, slot:slotKey, homeId:null });
+    }
+    mp.players = players;
+    renderMpRoom();
+    await sb.from('game_rooms').update({ players, updated_at:new Date().toISOString() }).eq('id', mp.roomId);
+  }
+
+  async function mpSetHome(homeId){
+    const players = mp.players.map(p=> p.clientId===MP_CLIENT_ID ? { ...p, homeId } : p);
+    mp.players = players;
+    renderMpRoom();
+    await sb.from('game_rooms').update({ players, updated_at:new Date().toISOString() }).eq('id', mp.roomId);
+  }
+
+  function mpSubscribe(){
+    if(mp.channel){ try{ sb.removeChannel(mp.channel); }catch(e){} }
+    mp.channel = sb.channel('room-'+mp.roomCode)
+      .on('postgres_changes', { event:'UPDATE', schema:'public', table:'game_rooms', filter:`id=eq.${mp.roomId}` }, (payload)=>{
+        const row = payload.new;
+        mp.players = row.players || [];
+        mp.difficulty = row.difficulty || mp.difficulty;
+        renderMpRoom();
+        renderMpDifficultyGrid();
+        if(row.started){
+          // TODO (prochaine étape) : lancement effectif de la partie synchronisée
+          document.getElementById('mpStatus').textContent = "L'hôte a lancé la partie — synchronisation de la partie à venir dans une prochaine mise à jour.";
+        }
+      })
+      .subscribe();
+
+    // filet de sécurité : réconciliation périodique même si le temps réel a un accroc
+    if(mp.pollTimer) clearInterval(mp.pollTimer);
+    mp.pollTimer = setInterval(async ()=>{
+      if(!mp.roomId) return;
+      const { data } = await sb.from('game_rooms').select('*').eq('id', mp.roomId).single();
+      if(data){ mp.players = data.players||[]; mp.difficulty = data.difficulty; renderMpRoom(); renderMpDifficultyGrid(); }
+    }, 4000);
+  }
+
+  async function mpLeaveRoom(){
+    if(mp.channel){ try{ sb.removeChannel(mp.channel); }catch(e){} mp.channel=null; }
+    if(mp.pollTimer){ clearInterval(mp.pollTimer); mp.pollTimer=null; }
+    if(mp.roomId && !mp.isHost){
+      const players = mp.players.filter(p=>p.clientId!==MP_CLIENT_ID);
+      try{ await sb.from('game_rooms').update({ players, updated_at:new Date().toISOString() }).eq('id', mp.roomId); }catch(e){}
+    }
+    mp.roomId=null; mp.roomCode=null; mp.isHost=false; mp.mySlot=null; mp.players=[];
+    document.getElementById('mpHome').style.display = 'block';
+    document.getElementById('mpRoom').style.display = 'none';
+  }
+
+  async function mpStartGame(){
+    if(!mp.isHost) return;
+    await sb.from('game_rooms').update({ started:true, updated_at:new Date().toISOString() }).eq('id', mp.roomId);
+    document.getElementById('mpStatus').textContent = "Partie lancée — synchronisation complète du déroulement de la partie arrive dans une prochaine mise à jour. Le salon reste ouvert.";
+  }
+
+  document.getElementById('btnOpenMultiplayer').addEventListener('click', openMultiplayerOverlay);
+  document.getElementById('btnMpClose').addEventListener('click', ()=>{ closeMultiplayerOverlay(); });
+  document.getElementById('btnMpCreate').addEventListener('click', mpCreateRoom);
+  document.getElementById('btnMpJoin').addEventListener('click', mpJoinRoom);
+  document.getElementById('btnMpLeave').addEventListener('click', mpLeaveRoom);
+  document.getElementById('btnMpStart').addEventListener('click', mpStartGame);
 
   /* ============ DÉMARRAGE ============ */
   const NAME_MAP = {};
