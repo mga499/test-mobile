@@ -2297,7 +2297,7 @@
   const mp = {
     roomCode:null, roomId:null, channel:null, isHost:false,
     myPseudo:'', mySlot:null, myHome:null, difficulty:'moyen',
-    players:[], pollTimer:null
+    players:[], pollTimer:null, presence:{}
   };
 
   function mpGenerateCode(){
@@ -2453,10 +2453,14 @@
 
     const statusEl = document.getElementById('mpStatus');
     const claimedCount = mp.players.length;
+    const presenceCount = mp.presence ? Object.keys(mp.presence).length : 1;
     const allReady = claimedCount>0 && mp.players.every(p=>p.ready);
+    const presenceLine = presenceCount > claimedCount
+      ? ` (${presenceCount} dans le salon, dont ${claimedCount} avec un camp choisi)`
+      : ` (${presenceCount} dans le salon)`;
     statusEl.textContent = mp.isHost
-      ? `${claimedCount} joueur(s) connecté(s) · les camps non choisis seront pris par l'IA au lancement.${allReady?'':' En attente que tout le monde soit prêt.'}`
-      : `${claimedCount} joueur(s) connecté(s) · en attente que l'hôte lance la partie.`;
+      ? `${claimedCount} camp(s) choisi(s)${presenceLine} · les camps non choisis seront pris par l'IA au lancement.${allReady?'':' En attente que tout le monde soit prêt.'}`
+      : `${claimedCount} camp(s) choisi(s)${presenceLine} · en attente que l'hôte lance la partie.`;
 
     const startBtn = document.getElementById('btnMpStart');
     startBtn.style.display = mp.isHost ? 'inline-block' : 'none';
@@ -2498,7 +2502,8 @@
 
   function mpSubscribe(){
     if(mp.channel){ try{ sb.removeChannel(mp.channel); }catch(e){} }
-    mp.channel = sb.channel('room-'+mp.roomCode)
+    mp.presence = {};
+    mp.channel = sb.channel('room-'+mp.roomCode, { config: { presence: { key: MP_CLIENT_ID } } })
       .on('postgres_changes', { event:'UPDATE', schema:'public', table:'game_rooms', filter:`id=eq.${mp.roomId}` }, (payload)=>{
         const row = payload.new;
         const wasIn = mp.players.some(p=>p.clientId===MP_CLIENT_ID);
@@ -2519,7 +2524,15 @@
           document.getElementById('mpStatus').textContent = "L'hôte a lancé la partie — synchronisation de la partie à venir dans une prochaine mise à jour.";
         }
       })
-      .subscribe();
+      .on('presence', { event:'sync' }, ()=>{
+        mp.presence = mp.channel.presenceState();
+        renderMpRoom();
+      })
+      .subscribe(async (status)=>{
+        if(status === 'SUBSCRIBED'){
+          await mp.channel.track({ pseudo: mp.myPseudo, online_at: new Date().toISOString() });
+        }
+      });
 
     // filet de sécurité : réconciliation périodique même si le temps réel a un accroc
     if(mp.pollTimer) clearInterval(mp.pollTimer);
@@ -2549,7 +2562,7 @@
       const players = mp.players.filter(p=>p.clientId!==MP_CLIENT_ID);
       try{ await sb.from('game_rooms').update({ players, updated_at:new Date().toISOString() }).eq('id', mp.roomId); }catch(e){}
     }
-    mp.roomId=null; mp.roomCode=null; mp.isHost=false; mp.mySlot=null; mp.players=[];
+    mp.roomId=null; mp.roomCode=null; mp.isHost=false; mp.mySlot=null; mp.players=[]; mp.presence={};
     document.getElementById('mpHome').style.display = 'block';
     document.getElementById('mpRoom').style.display = 'none';
   }
