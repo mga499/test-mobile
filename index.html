@@ -363,7 +363,8 @@
         </div>
 
         <h3 style="font-size:11px;color:var(--brass);letter-spacing:.08em;text-transform:uppercase;margin:0 0 8px;">Choisissez votre camp</h3>
-        <div id="mpSlots" style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px;"></div>
+        <div id="mpSlots" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px;"></div>
+        <p id="mpWaitingList" style="font-size:10px;color:var(--muted);margin:0 0 12px;"></p>
 
         <div id="mpHomePickBlock" style="display:none;margin-bottom:18px;">
           <h3 style="font-size:11px;color:var(--brass);letter-spacing:.08em;text-transform:uppercase;margin:0 0 8px;">Votre nation de départ</h3>
@@ -2328,7 +2329,7 @@
     const pseudo = (document.getElementById('mpPseudoInput').value||'').trim().slice(0,24) || 'Anonyme';
     mp.myPseudo = pseudo;
     const code = mpGenerateCode();
-    const initialPlayers = [];
+    const initialPlayers = [{ clientId:MP_CLIENT_ID, pseudo, slot:null, homeId:null, ready:false, isHost:true }];
     try{
       const { data, error } = await sb.from('game_rooms').insert({
         code, difficulty:'moyen', started:false,
@@ -2363,7 +2364,12 @@
       mp.roomCode = data.code;
       mp.isHost = (data.host_client_id === MP_CLIENT_ID);
       mp.difficulty = data.difficulty;
-      mp.players = data.players || [];
+      let players = data.players || [];
+      if(!players.some(p=>p.clientId===MP_CLIENT_ID)){
+        players = [...players, { clientId:MP_CLIENT_ID, pseudo, slot:null, homeId:null, ready:false, isHost:mp.isHost }];
+        await sb.from('game_rooms').update({ players, updated_at:new Date().toISOString() }).eq('id', mp.roomId);
+      }
+      mp.players = players;
       enterRoomUI();
       mpSubscribe();
     }catch(e){
@@ -2398,6 +2404,13 @@
   }
 
   function renderMpRoom(){
+    const unassigned = mp.players.filter(p=>!p.slot && p.clientId!==MP_CLIENT_ID);
+    const waitingEl = document.getElementById('mpWaitingList');
+    if(waitingEl){
+      waitingEl.textContent = unassigned.length
+        ? `En attente de choix de camp : ${unassigned.map(p=>p.pseudo).join(', ')}`
+        : '';
+    }
     const slotsEl = document.getElementById('mpSlots');
     slotsEl.innerHTML = MP_SLOTS.map(slot=>{
       const occupant = mp.players.find(p=>p.slot===slot.key);
@@ -2452,12 +2465,13 @@
     }
 
     const statusEl = document.getElementById('mpStatus');
-    const claimedCount = mp.players.length;
-    const presenceCount = mp.presence ? Object.keys(mp.presence).length : 1;
-    const allReady = claimedCount>0 && mp.players.every(p=>p.ready);
-    const presenceLine = presenceCount > claimedCount
-      ? ` (${presenceCount} dans le salon, dont ${claimedCount} avec un camp choisi)`
-      : ` (${presenceCount} dans le salon)`;
+    const inRoomCount = mp.players.length;
+    const claimedCount = mp.players.filter(p=>p.slot).length;
+    const readyPlayers = mp.players.filter(p=>p.slot);
+    const allReady = readyPlayers.length>0 && readyPlayers.every(p=>p.ready);
+    const presenceLine = inRoomCount > claimedCount
+      ? ` (${inRoomCount} dans le salon, dont ${claimedCount} avec un camp choisi)`
+      : ` (${inRoomCount} dans le salon)`;
     statusEl.textContent = mp.isHost
       ? `${claimedCount} camp(s) choisi(s)${presenceLine} · les camps non choisis seront pris par l'IA au lancement.${allReady?'':' En attente que tout le monde soit prêt.'}`
       : `${claimedCount} camp(s) choisi(s)${presenceLine} · en attente que l'hôte lance la partie.`;
@@ -2483,9 +2497,16 @@
   }
 
   async function mpClaimSlot(slotKey){
-    let players = mp.players.filter(p=>p.clientId!==MP_CLIENT_ID);
-    if(slotKey){
-      if(players.some(p=>p.slot===slotKey)) return; // déjà pris entre-temps
+    if(slotKey && mp.players.some(p=>p.slot===slotKey && p.clientId!==MP_CLIENT_ID)) return; // déjà pris entre-temps
+    let found = false;
+    let players = mp.players.map(p=>{
+      if(p.clientId===MP_CLIENT_ID){
+        found = true;
+        return { ...p, slot: slotKey, homeId: slotKey ? p.homeId : null, ready:false };
+      }
+      return p;
+    });
+    if(!found){
       players.push({ clientId:MP_CLIENT_ID, pseudo:mp.myPseudo, slot:slotKey, homeId:null, ready:false, isHost:mp.isHost });
     }
     mp.players = players;
@@ -2552,7 +2573,7 @@
         }
         renderMpRoom(); renderMpDifficultyGrid();
       }
-    }, 4000);
+    }, 2500);
   }
 
   async function mpLeaveRoom(){
