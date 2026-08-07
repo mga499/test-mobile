@@ -2404,8 +2404,16 @@
       const mine = occupant && occupant.clientId===MP_CLIENT_ID;
       let right;
       if(occupant){
-        right = `<span style="color:${mine?'var(--brass)':'var(--parchment)'};font-size:12px;">${occupant.pseudo}${mine?' (vous)':''}</span>`;
-        if(mine) right += ` <button class="miniBtn" data-leaveslot="1" style="margin-left:8px;">Libérer</button>`;
+        const readyTag = occupant.ready
+          ? `<span style="color:var(--good);font-size:10px;">✓ prêt</span>`
+          : `<span style="color:var(--muted);font-size:10px;">en attente</span>`;
+        right = `<span style="color:${mine?'var(--brass)':'var(--parchment)'};font-size:12px;">${occupant.pseudo}${mine?' (vous)':''}${occupant.isHost?' 👑':''}</span> ${readyTag}`;
+        if(mine){
+          right += ` <button class="miniBtn" data-toggleready="1" style="margin-left:8px;">${occupant.ready?'Annuler':'Prêt'}</button>`;
+          right += ` <button class="miniBtn" data-leaveslot="1">Libérer</button>`;
+        } else if(mp.isHost){
+          right += ` <button class="miniBtn dangerBtn" data-kick="${occupant.clientId}" style="margin-left:8px;">Exclure</button>`;
+        }
       } else {
         right = `<button class="miniBtn" data-claim="${slot.key}">Choisir</button>`;
       }
@@ -2416,6 +2424,12 @@
     });
     slotsEl.querySelectorAll('button[data-leaveslot]').forEach(btn=>{
       btn.addEventListener('click', ()=>mpClaimSlot(null));
+    });
+    slotsEl.querySelectorAll('button[data-toggleready]').forEach(btn=>{
+      btn.addEventListener('click', ()=>mpToggleReady());
+    });
+    slotsEl.querySelectorAll('button[data-kick]').forEach(btn=>{
+      btn.addEventListener('click', ()=>mpKickPlayer(btn.dataset.kick));
     });
 
     const mySlotEntry = mp.players.find(p=>p.clientId===MP_CLIENT_ID);
@@ -2439,19 +2453,36 @@
 
     const statusEl = document.getElementById('mpStatus');
     const claimedCount = mp.players.length;
-    statusEl.textContent = `${claimedCount} joueur(s) connecté(s) · les camps non choisis seront pris par l'IA au lancement.`;
+    const allReady = claimedCount>0 && mp.players.every(p=>p.ready);
+    statusEl.textContent = mp.isHost
+      ? `${claimedCount} joueur(s) connecté(s) · les camps non choisis seront pris par l'IA au lancement.${allReady?'':' En attente que tout le monde soit prêt.'}`
+      : `${claimedCount} joueur(s) connecté(s) · en attente que l'hôte lance la partie.`;
 
     const startBtn = document.getElementById('btnMpStart');
     startBtn.style.display = mp.isHost ? 'inline-block' : 'none';
-    const ready = !mySlotEntry || mySlotEntry.slot!=='player' || !!mySlotEntry.homeId;
-    startBtn.disabled = false;
+    startBtn.disabled = !allReady;
+  }
+
+  async function mpToggleReady(){
+    const players = mp.players.map(p=> p.clientId===MP_CLIENT_ID ? { ...p, ready: !p.ready } : p);
+    mp.players = players;
+    renderMpRoom();
+    await sb.from('game_rooms').update({ players, updated_at:new Date().toISOString() }).eq('id', mp.roomId);
+  }
+
+  async function mpKickPlayer(clientId){
+    if(!mp.isHost) return;
+    const players = mp.players.filter(p=>p.clientId!==clientId);
+    mp.players = players;
+    renderMpRoom();
+    await sb.from('game_rooms').update({ players, updated_at:new Date().toISOString() }).eq('id', mp.roomId);
   }
 
   async function mpClaimSlot(slotKey){
     let players = mp.players.filter(p=>p.clientId!==MP_CLIENT_ID);
     if(slotKey){
       if(players.some(p=>p.slot===slotKey)) return; // déjà pris entre-temps
-      players.push({ clientId:MP_CLIENT_ID, pseudo:mp.myPseudo, slot:slotKey, homeId:null });
+      players.push({ clientId:MP_CLIENT_ID, pseudo:mp.myPseudo, slot:slotKey, homeId:null, ready:false, isHost:mp.isHost });
     }
     mp.players = players;
     renderMpRoom();
@@ -2470,8 +2501,17 @@
     mp.channel = sb.channel('room-'+mp.roomCode)
       .on('postgres_changes', { event:'UPDATE', schema:'public', table:'game_rooms', filter:`id=eq.${mp.roomId}` }, (payload)=>{
         const row = payload.new;
+        const wasIn = mp.players.some(p=>p.clientId===MP_CLIENT_ID);
+        const stillIn = (row.players||[]).some(p=>p.clientId===MP_CLIENT_ID);
         mp.players = row.players || [];
         mp.difficulty = row.difficulty || mp.difficulty;
+        if(!mp.isHost && wasIn && !stillIn){
+          mpLeaveRoom();
+          mpShowError("Vous avez été exclu du salon par l'hôte.");
+          document.getElementById('mpHome').style.display = 'block';
+          document.getElementById('mpRoom').style.display = 'none';
+          return;
+        }
         renderMpRoom();
         renderMpDifficultyGrid();
         if(row.started){
@@ -2486,7 +2526,19 @@
     mp.pollTimer = setInterval(async ()=>{
       if(!mp.roomId) return;
       const { data } = await sb.from('game_rooms').select('*').eq('id', mp.roomId).single();
-      if(data){ mp.players = data.players||[]; mp.difficulty = data.difficulty; renderMpRoom(); renderMpDifficultyGrid(); }
+      if(data){
+        const wasIn = mp.players.some(p=>p.clientId===MP_CLIENT_ID);
+        const stillIn = (data.players||[]).some(p=>p.clientId===MP_CLIENT_ID);
+        mp.players = data.players||[]; mp.difficulty = data.difficulty;
+        if(!mp.isHost && wasIn && !stillIn){
+          mpLeaveRoom();
+          mpShowError("Vous avez été exclu du salon par l'hôte.");
+          document.getElementById('mpHome').style.display = 'block';
+          document.getElementById('mpRoom').style.display = 'none';
+          return;
+        }
+        renderMpRoom(); renderMpDifficultyGrid();
+      }
     }, 4000);
   }
 
