@@ -376,6 +376,10 @@
           <button id="btnMpLeave" style="background:var(--panel-2);border:1px solid var(--line);color:var(--parchment);border-radius:5px;">Quitter le salon</button>
         </div>
         <p id="mpStatus" style="color:var(--muted);font-size:11px;text-align:center;margin-top:14px;"></p>
+        <div style="text-align:center;margin-top:10px;">
+          <button class="miniBtn" id="btnMpRefresh">🔄 Actualiser maintenant</button>
+        </div>
+        <p id="mpDebug" style="color:var(--dim);font-size:10px;text-align:center;margin-top:10px;font-family:'IBM Plex Mono',monospace;"></p>
       </div>
 
       <div class="continueRow" style="margin-top:16px;">
@@ -978,6 +982,16 @@
   let state = null;
   let tickTimer = null;
 
+  // ---- Session multijoueur (indépendante de mp.* qui ne gère que le salon) ----
+  const mpGame = {
+    active:false, isHost:false, roomId:null, myFaction:'player',
+    humanFactions:[], factionOwners:{}, factionNames:{}, syncTimer:null, applying:false
+  };
+  function myFaction(){ return mpGame.active ? mpGame.myFaction : 'player'; }
+  function actingFaction(){ return mpGame.applyingRemoteFaction || myFaction(); }
+  function isMyFaction(owner){ return owner===myFaction(); }
+  function isMultiplayerHost(){ return !mpGame.active || mpGame.isHost; }
+
   function freshState(homeId, difficulty){
     difficulty = DIFFICULTIES[difficulty] ? difficulty : 'moyen';
     const diff = DIFFICULTIES[difficulty];
@@ -1039,13 +1053,18 @@
   }
 
   function checkWinLose(){
-    const mine = ownedList('player').length;
-    if(mine>=170){ endGame('victoire'); return true; }
-    if(mine<=0){ endGame('defaite'); return true; }
+    const factionsToCheck = ['player','crimson','violet','amber'];
+    for(const f of factionsToCheck){
+      if(ownedList(f).length>=170){ endGame('victoire', f); return true; }
+    }
+    if(!mpGame.active){
+      const mine = ownedList('player').length;
+      if(mine<=0){ endGame('defaite'); return true; }
+    }
     return false;
   }
 
-  function endGame(kind){
+  function endGame(kind, winnerFaction){
     state.over = true;
     stopLoop();
     const overlay = document.getElementById('endOverlay');
@@ -1055,25 +1074,35 @@
     const elapsedMs = Date.now() - (state.startTime || Date.now());
     state.finalElapsedMs = elapsedMs;
     const duration = formatDuration(elapsedMs);
+    const iWon = !winnerFaction || winnerFaction===myFaction();
     if(kind==='victoire'){
-      title.textContent = 'Victoire totale';
-      sub.textContent = `Vous avez conquis les 170 territoires du globe à ${time}, en ${duration}. Votre bannière flotte sur le monde entier.`;
-      addLog(`<b>Victoire totale !</b> Le monde entier est sous votre bannière, en <b>${duration}</b>.`, true);
-      const isNewBest = saveLeaderboardEntry({
-        pseudo: currentPseudo(),
-        homeName: byId[state.home].name,
-        difficulty: state.difficulty,
-        elapsedMs,
-        date: new Date().toLocaleDateString('fr-FR')
-      });
-      if(isNewBest){
-        sub.textContent += ' Nouveau meilleur temps !';
+      title.textContent = iWon ? 'Victoire totale' : 'Partie terminée';
+      if(iWon){
+        sub.textContent = `Vous avez conquis les 170 territoires du globe à ${time}, en ${duration}. Votre bannière flotte sur le monde entier.`;
+        addLog(`<b>Victoire totale !</b> Le monde entier est sous votre bannière, en <b>${duration}</b>.`, true);
+        const isNewBest = saveLeaderboardEntry({
+          pseudo: currentPseudo(),
+          homeName: byId[state.home] ? byId[state.home].name : labelOf(myFaction()),
+          difficulty: state.difficulty,
+          elapsedMs,
+          date: new Date().toLocaleDateString('fr-FR')
+        });
+        if(isNewBest){
+          sub.textContent += ' Nouveau meilleur temps !';
+        }
+        renderLeaderboardInto('endLeaderboard');
+        const profile = loadProfile();
+        profile.victories += 1;
+        if(profile.bestTimeMs==null || elapsedMs < profile.bestTimeMs) profile.bestTimeMs = elapsedMs;
+        saveProfile(profile);
+      } else {
+        sub.textContent = `${labelOf(winnerFaction)} a conquis le monde entier à ${time}, en ${duration}.`;
+        addLog(`<b>Partie terminée.</b> ${labelOf(winnerFaction)} a gagné.`, true);
+        document.getElementById('endLeaderboard').innerHTML = '';
+        const profile = loadProfile();
+        profile.defeats += 1;
+        saveProfile(profile);
       }
-      renderLeaderboardInto('endLeaderboard');
-      const profile = loadProfile();
-      profile.victories += 1;
-      if(profile.bestTimeMs==null || elapsedMs < profile.bestTimeMs) profile.bestTimeMs = elapsedMs;
-      saveProfile(profile);
     } else {
       title.textContent = 'Défaite';
       sub.textContent = `Votre dernier territoire est tombé à ${time}, après ${duration} de jeu. Votre nation a cessé d'exister.`;
@@ -1144,36 +1173,41 @@
 
   function playerAttack(fromId, toId, amount){
     if(state.over) return;
+    const f = actingFaction();
     const fromC = byId[fromId], toC = byId[toId];
     const toState = state.countries[toId];
     const fromState = state.countries[fromId];
-    if(fromState.owner!=='player') return;
-    if(toState.owner==='player') return;
+    if(fromState.owner!==f) return;
+    if(toState.owner===f) return;
     amount = Math.max(1, Math.min(Math.floor(amount)||1, fromState.troops-1));
     if(amount<1){ addLog('Pas assez de troupes pour attaquer.'); return; }
 
-    if(FACTIONS[toState.owner] && state.alliances[toState.owner]){
-      const ok = window.confirm(`${FACTIONS[toState.owner].name} est votre allié. Attaquer rompra immédiatement l'alliance. Continuer ?`);
-      if(!ok) return;
-      state.alliances[toState.owner] = false;
-      state.relations[toState.owner] = Math.max(-100, state.relations[toState.owner]-60);
-      addLog(`Vous rompez l'alliance avec <b>${FACTIONS[toState.owner].name}</b> en envahissant ${toC.name}.`, true);
-    } else if(FACTIONS[toState.owner]){
-      state.relations[toState.owner] = Math.max(-100, state.relations[toState.owner]-15);
+    if(f==='player'){
+      if(FACTIONS[toState.owner] && state.alliances[toState.owner]){
+        const ok = window.confirm(`${FACTIONS[toState.owner].name} est votre allié. Attaquer rompra immédiatement l'alliance. Continuer ?`);
+        if(!ok) return;
+        state.alliances[toState.owner] = false;
+        state.relations[toState.owner] = Math.max(-100, state.relations[toState.owner]-60);
+        addLog(`Vous rompez l'alliance avec <b>${FACTIONS[toState.owner].name}</b> en envahissant ${toC.name}.`, true);
+      } else if(FACTIONS[toState.owner]){
+        state.relations[toState.owner] = Math.max(-100, state.relations[toState.owner]-15);
+      }
     }
 
-    resolveCombat(fromC, toC, amount, 'player');
-    state.selected = toState.owner==='player' ? toId : state.selected;
+    resolveCombat(fromC, toC, amount, f);
+    state.selected = toState.owner===f ? toId : state.selected;
     saveGame();
     render();
+    mpSyncAfterAction();
   }
 
   function transferTroops(fromId, toId, amount){
     if(state.over) return;
+    const f = actingFaction();
     const fromState = state.countries[fromId];
     const toState = state.countries[toId];
     if(!fromState || !toState) return;
-    if(fromState.owner!=='player' || toState.owner!=='player') return;
+    if(fromState.owner!==f || toState.owner!==f) return;
     if(!adjMap[fromId] || !adjMap[fromId].includes(toId)) return;
     amount = Math.max(1, Math.min(Math.floor(amount)||1, fromState.troops-1));
     if(amount<1){ addLog('Pas assez de troupes disponibles pour ce transfert (il en faut au moins une pour tenir le territoire).'); return; }
@@ -1182,22 +1216,25 @@
     addLog(`Transfert de <b>${amount}</b> troupes de ${byId[fromId].name} vers ${byId[toId].name}.`);
     saveGame();
     render();
+    mpSyncAfterAction();
   }
 
   function recruit(countryId, amount){
     if(state.over) return;
+    const f = actingFaction();
     const cs = state.countries[countryId];
-    if(cs.owner!=='player') return;
+    if(cs.owner!==f) return;
     amount = Math.max(1, Math.floor(amount)||1);
     const cost = amount*RECRUIT_COST;
-    const maxAffordable = Math.floor(state.gold.player/RECRUIT_COST);
+    const maxAffordable = Math.floor(state.gold[f]/RECRUIT_COST);
     if(maxAffordable<=0){ addLog('Trésor insuffisant pour recruter.'); return; }
     amount = Math.min(amount, maxAffordable);
-    state.gold.player -= amount*RECRUIT_COST;
+    state.gold[f] -= amount*RECRUIT_COST;
     cs.troops += amount;
     addLog(`Recrutement de <b>${amount}</b> troupes à ${byId[countryId].name}.`);
     saveGame();
     render();
+    mpSyncAfterAction();
   }
 
   function proposeAlliance(f){
@@ -1279,34 +1316,38 @@
 
   function buildBunker(countryId, amount){
     if(state.over) return;
+    const f = actingFaction();
     const cs = state.countries[countryId];
-    if(!cs || cs.owner!=='player') return;
+    if(!cs || cs.owner!==f) return;
     amount = Math.max(1, Math.floor(amount)||1);
-    const maxAffordable = Math.floor(state.gold.player/BUNKER_COST);
+    const maxAffordable = Math.floor(state.gold[f]/BUNKER_COST);
     if(maxAffordable<=0){ addLog('Trésor insuffisant pour construire un bunker.'); return; }
     amount = Math.min(amount, maxAffordable);
-    state.gold.player -= amount*BUNKER_COST;
+    state.gold[f] -= amount*BUNKER_COST;
     cs.bunkers += amount;
     addLog(`Construction de <b>${amount}</b> bunker(s) à ${byId[countryId].name} pour protéger la population civile.`);
     saveGame();
     render();
+    mpSyncAfterAction();
   }
 
   function buildUnit(unitType, countryId, amount){
     if(state.over) return;
+    const f = actingFaction();
     const def = UNIT_TYPES[unitType];
     if(!def) return;
     const cs = state.countries[countryId];
-    if(!cs || cs.owner!=='player') return;
+    if(!cs || cs.owner!==f) return;
     amount = Math.max(1, Math.floor(amount)||1);
-    const maxAffordable = Math.floor(state.gold.player/def.cost);
+    const maxAffordable = Math.floor(state.gold[f]/def.cost);
     if(maxAffordable<=0){ addLog(`Trésor insuffisant pour construire : ${def.label}.`); return; }
     amount = Math.min(amount, maxAffordable);
-    state.gold.player -= amount*def.cost;
+    state.gold[f] -= amount*def.cost;
     cs[unitType] = (cs[unitType]||0) + amount;
     addLog(`Construction de <b>${amount}</b> ${def.label.toLowerCase()} à ${byId[countryId].name}.`);
     saveGame();
     render();
+    mpSyncAfterAction();
   }
 
   function launchMissile(targetId){
@@ -1462,25 +1503,33 @@
     if(state.over) return;
     state.tick++;
     const diff = DIFFICULTIES[state.difficulty] || DIFFICULTIES.moyen;
-    ownedList('player').forEach(c=>{ state.gold.player += byId[c.id].income; });
-    // renfort passif : chaque territoire du joueur lève un peu de garnison chaque tour
-    if(diff.passiveRegen>0){
-      ownedList('player').forEach(c=>{ state.countries[c.id].troops += diff.passiveRegen; });
-    }
+    const humanFactions = mpGame.active ? mpGame.humanFactions : ['player'];
+    humanFactions.forEach(hf=>{
+      ownedList(hf).forEach(c=>{ state.gold[hf] += byId[c.id].income; });
+      if(diff.passiveRegen>0){
+        ownedList(hf).forEach(c=>{ state.countries[c.id].troops += diff.passiveRegen; });
+      }
+    });
     // coût politique/économique des victimes civiles causées par le joueur
     if(state.civilianDeathsCaused>0){
       const penalty = Math.min(CIVILIAN_UPKEEP_CAP, Math.round(state.civilianDeathsCaused*CIVILIAN_UPKEEP_RATE));
       if(penalty>0) state.gold.player = Math.max(0, state.gold.player - penalty);
     }
-    ['crimson','violet','amber'].forEach(f=>{ if(!state.over) aiTurn(f); });
+    ['crimson','violet','amber'].forEach(f=>{
+      if(state.over) return;
+      if(humanFactions.includes(f)) return; // faction contrôlée par un joueur humain, pas d'IA
+      aiTurn(f);
+    });
     if(!checkWinLose()){
       saveGame();
       render();
+      mpBroadcastState();
     }
   }
 
   function startLoop(){
     stopLoop();
+    if(mpGame.active && !mpGame.isHost) return; // les clients non-hôtes se contentent d'afficher l'état reçu
     tickTimer = setInterval(tick, TICK_MS);
   }
   function stopLoop(){
@@ -1489,6 +1538,7 @@
 
   /* ============ SAUVEGARDE ============ */
   function saveGame(){
+    if(mpGame.active) return; // la partie multijoueur vit dans Supabase, pas dans la sauvegarde locale
     try{ localStorage.setItem(SAVE_KEY, JSON.stringify(state)); }catch(e){}
   }
   function loadGame(){
@@ -1914,12 +1964,15 @@
 
   /* ============ HUD ============ */
   function renderTop(){
-    document.getElementById('statGold').textContent = state.gold.player;
-    const totalTroops = ownedList('player').reduce((s,c)=>s+state.countries[c.id].troops,0);
+    const f = myFaction();
+    document.getElementById('statGold').textContent = state.gold[f];
+    const totalTroops = ownedList(f).reduce((s,c)=>s+state.countries[c.id].troops,0);
     document.getElementById('statTroops').textContent = totalTroops;
-    document.getElementById('statTerr').textContent = `${ownedList('player').length}/170`;
+    document.getElementById('statTerr').textContent = `${ownedList(f).length}/170`;
     document.getElementById('statTick').textContent = state.tick;
-    document.getElementById('playerTitle').textContent = `${currentPseudo().toUpperCase()} — NATION DE ${byId[state.home].name.toUpperCase()} — ${(DIFFICULTIES[state.difficulty]||DIFFICULTIES.moyen).label.toUpperCase()}`;
+    const nationLabel = f==='player' ? `NATION DE ${byId[state.home].name.toUpperCase()}` : (FACTIONS[f]?FACTIONS[f].name.toUpperCase():f.toUpperCase());
+    const mpTag = mpGame.active ? ' — 🌐 MULTIJOUEUR' : '';
+    document.getElementById('playerTitle').textContent = `${currentPseudo().toUpperCase()} — ${nationLabel} — ${(DIFFICULTIES[state.difficulty]||DIFFICULTIES.moyen).label.toUpperCase()}${mpTag}`;
     renderTopbarFlag();
     document.getElementById('statTime').textContent = (state.over && state.finalElapsedMs!=null)
       ? formatDuration(state.finalElapsedMs)
@@ -1942,6 +1995,7 @@
     }
     const c = byId[sel];
     const cs = state.countries[sel];
+    const f = myFaction();
     let html = `
       <div class="selInfo">
         <div class="name">${c.name}</div>
@@ -1952,7 +2006,7 @@
         <div class="row"><span>Bunkers</span><b>${cs.bunkers||0} (protection ${Math.round(Math.min(BUNKER_CAP, (cs.bunkers||0)*BUNKER_STEP)*100)}%)</b></div>
       </div>`;
 
-    if(cs.owner==='player'){
+    if(cs.owner===f){
       html += `
         <div class="neighborBox">
           <h3 style="margin-bottom:6px;">Recruter des troupes</h3>
@@ -1985,7 +2039,7 @@
           }).join('')}
           <span style="font-size:10px;color:var(--muted);">Chaque unité renforce la puissance de ce territoire à l'attaque comme à la défense (plafonné à +300%).</span>
         </div>`;
-      const targets = adjMap[sel].filter(nId=>state.countries[nId].owner!=='player');
+      const targets = adjMap[sel].filter(nId=>state.countries[nId].owner!==f);
       if(targets.length){
         html += `<div class="neighborBox"><h3>Cibles d'attaque</h3>`;
         targets.forEach(nId=>{
@@ -2005,14 +2059,14 @@
       } else {
         html += `<div class="neighborBox"><span style="font-size:11px;color:var(--muted);">Aucune cible adjacente à ce territoire.</span></div>`;
       }
-      const ownedNeighbors = adjMap[sel].filter(nId=>state.countries[nId].owner==='player');
+      const ownedNeighbors = adjMap[sel].filter(nId=>state.countries[nId].owner===f);
       if(ownedNeighbors.length){
         html += `<div class="neighborBox"><h3>Transférer des troupes vers</h3>`;
         ownedNeighbors.forEach(nId=>{
           const n = byId[nId], ns = state.countries[nId];
           html += `
             <div class="neighborItem">
-              <span>${n.name} <span style="color:var(--player)">(${ns.troops} tr.)</span></span>
+              <span>${n.name} <span style="color:${colorOf(f)}">(${ns.troops} tr.)</span></span>
               <span>
                 <input type="number" class="numInput" style="width:44px;" id="xfer-${sel}-${nId}" value="${Math.max(1,cs.troops-1)}" min="1">
                 <button class="miniBtn" data-act="transfer" data-from="${sel}" data-to="${nId}">Transférer</button>
@@ -2022,14 +2076,14 @@
         html += `</div>`;
       }
     } else {
-      const attackFrom = adjMap[sel].filter(nId=>state.countries[nId].owner==='player');
+      const attackFrom = adjMap[sel].filter(nId=>state.countries[nId].owner===f);
       if(attackFrom.length){
         html += `<div class="neighborBox"><h3>Lancer une attaque depuis</h3>`;
         attackFrom.forEach(nId=>{
           const n = byId[nId], ns = state.countries[nId];
           html += `
             <div class="neighborItem">
-              <span>${n.name} <span style="color:var(--player)">(${ns.troops} tr.)</span></span>
+              <span>${n.name} <span style="color:${colorOf(f)}">(${ns.troops} tr.)</span></span>
               <span>
                 <input type="number" class="numInput" style="width:44px;" id="atk-${nId}-${sel}" value="${Math.max(1,ns.troops-1)}" min="1">
                 <button class="miniBtn dangerBtn" data-act="attack" data-from="${nId}" data-to="${sel}">Attaquer</button>
@@ -2046,6 +2100,10 @@
 
   function renderArsenal(){
     const body = document.getElementById('arsenalBody');
+    if(mpGame.active && myFaction()!=='player'){
+      body.innerHTML = `<div class="placeholder" style="padding:10px 0;">Missiles et programme nucléaire non disponibles pour cette faction en multijoueur (réservés à "Votre Empire").</div>`;
+      return;
+    }
     let html = `
       <div class="row"><span>Missiles en stock</span><b>${state.missiles}</b></div>
       <div class="actionsRow">
@@ -2106,6 +2164,10 @@
 
   function renderDiplo(){
     const body = document.getElementById('diploBody');
+    if(mpGame.active && myFaction()!=='player'){
+      body.innerHTML = `<div class="placeholder" style="padding:10px 0;">Diplomatie non disponible pour cette faction en multijoueur (réservée à "Votre Empire").</div>`;
+      return;
+    }
     let html='';
     ['crimson','violet','amber'].forEach(f=>{
       const fac = FACTIONS[f];
@@ -2157,43 +2219,43 @@
     const act = btn.dataset.act;
     if(act==='recruit'){
       const amt = parseInt(document.getElementById('recruitAmt').value,10)||1;
-      recruit(btn.dataset.id, amt);
+      mpDispatch('recruit', [btn.dataset.id, amt]);
     } else if(act==='buildBunker'){
       const amt = parseInt(document.getElementById('bunkerAmt').value,10)||1;
-      buildBunker(btn.dataset.id, amt);
+      mpDispatch('buildBunker', [btn.dataset.id, amt]);
     } else if(act==='buildUnit'){
       const input = document.getElementById(`unitAmt-${btn.dataset.unit}`);
       const amt = parseInt(input.value,10)||1;
-      buildUnit(btn.dataset.unit, btn.dataset.id, amt);
+      mpDispatch('buildUnit', [btn.dataset.unit, btn.dataset.id, amt]);
     } else if(act==='attack'){
       const input = document.getElementById(`atk-${btn.dataset.from}-${btn.dataset.to}`);
       const amt = parseInt(input.value,10)||1;
-      playerAttack(btn.dataset.from, btn.dataset.to, amt);
+      mpDispatch('playerAttack', [btn.dataset.from, btn.dataset.to, amt]);
     } else if(act==='transfer'){
       const input = document.getElementById(`xfer-${btn.dataset.from}-${btn.dataset.to}`);
       const amt = parseInt(input.value,10)||1;
-      transferTroops(btn.dataset.from, btn.dataset.to, amt);
+      mpDispatch('transferTroops', [btn.dataset.from, btn.dataset.to, amt]);
     } else if(act==='alliance'){
-      proposeAlliance(btn.dataset.f);
+      mpDispatch('proposeAlliance', [btn.dataset.f]);
     } else if(act==='breakAlliance'){
-      breakAlliance(btn.dataset.f);
+      mpDispatch('breakAlliance', [btn.dataset.f]);
     } else if(act==='contract'){
-      contract(btn.dataset.f);
+      mpDispatch('contract', [btn.dataset.f]);
     } else if(act==='threaten'){
-      threatenFaction(btn.dataset.f);
+      mpDispatch('threatenFaction', [btn.dataset.f]);
     } else if(act==='buildMissiles'){
       const amt = parseInt(document.getElementById('missileAmt').value,10)||1;
-      buildMissiles(amt);
+      mpDispatch('buildMissiles', [amt]);
     } else if(act==='launchMissile'){
-      launchMissile(btn.dataset.to);
+      mpDispatch('launchMissile', [btn.dataset.to]);
     } else if(act==='buildFactory'){
       const amt = parseInt(document.getElementById('factoryAmt').value,10)||1;
-      buildNuclearFactory(amt);
+      mpDispatch('buildNuclearFactory', [amt]);
     } else if(act==='buildBombs'){
       const amt = parseInt(document.getElementById('bombAmt').value,10)||1;
-      buildNuclearBombs(amt);
+      mpDispatch('buildNuclearBombs', [amt]);
     } else if(act==='launchNuke'){
-      launchNuclearBomb(btn.dataset.to);
+      mpDispatch('launchNuclearBomb', [btn.dataset.to]);
     }
   });
 
@@ -2489,7 +2551,8 @@
 
     const startBtn = document.getElementById('btnMpStart');
     startBtn.style.display = mp.isHost ? 'inline-block' : 'none';
-    startBtn.disabled = !allReady;
+    startBtn.disabled = false;
+    startBtn.style.opacity = allReady ? '1' : '.55';
   }
 
   async function mpToggleReady(){
@@ -2533,58 +2596,81 @@
   }
 
   function mpSubscribe(){
-    if(mp.channel){ try{ sb.removeChannel(mp.channel); }catch(e){} }
-    mp.presence = {};
-    mp.channel = sb.channel('room-'+mp.roomCode, { config: { presence: { key: MP_CLIENT_ID } } })
-      .on('postgres_changes', { event:'UPDATE', schema:'public', table:'game_rooms', filter:`id=eq.${mp.roomId}` }, (payload)=>{
-        const row = payload.new;
-        const wasIn = mp.players.some(p=>p.clientId===MP_CLIENT_ID);
-        const stillIn = (row.players||[]).some(p=>p.clientId===MP_CLIENT_ID);
-        mp.players = row.players || [];
-        mp.difficulty = row.difficulty || mp.difficulty;
-        if(!mp.isHost && wasIn && !stillIn){
-          mpLeaveRoom();
-          mpShowError("Vous avez été exclu du salon par l'hôte.");
-          document.getElementById('mpHome').style.display = 'block';
-          document.getElementById('mpRoom').style.display = 'none';
-          return;
-        }
-        renderMpRoom();
-        renderMpDifficultyGrid();
-        if(row.started){
-          // TODO (prochaine étape) : lancement effectif de la partie synchronisée
-          document.getElementById('mpStatus').textContent = "L'hôte a lancé la partie — synchronisation de la partie à venir dans une prochaine mise à jour.";
-        }
-      })
-      .on('presence', { event:'sync' }, ()=>{
-        mp.presence = mp.channel.presenceState();
-        renderMpRoom();
-      })
-      .subscribe(async (status)=>{
-        if(status === 'SUBSCRIBED'){
-          await mp.channel.track({ pseudo: mp.myPseudo, online_at: new Date().toISOString() });
-        }
-      });
+    // Le rafraîchissement périodique démarre toujours en premier, indépendamment
+    // du temps réel — c'est lui qui garantit que le salon ne reste jamais bloqué.
+    mpStartPolling();
 
-    // filet de sécurité : réconciliation périodique même si le temps réel a un accroc
-    if(mp.pollTimer) clearInterval(mp.pollTimer);
-    mp.pollTimer = setInterval(async ()=>{
-      if(!mp.roomId) return;
-      const { data } = await sb.from('game_rooms').select('*').eq('id', mp.roomId).single();
-      if(data){
-        const wasIn = mp.players.some(p=>p.clientId===MP_CLIENT_ID);
-        const stillIn = (data.players||[]).some(p=>p.clientId===MP_CLIENT_ID);
-        mp.players = data.players||[]; mp.difficulty = data.difficulty;
-        if(!mp.isHost && wasIn && !stillIn){
-          mpLeaveRoom();
-          mpShowError("Vous avez été exclu du salon par l'hôte.");
-          document.getElementById('mpHome').style.display = 'block';
-          document.getElementById('mpRoom').style.display = 'none';
-          return;
-        }
-        renderMpRoom(); renderMpDifficultyGrid();
+    try{
+      if(mp.channel){ try{ sb.removeChannel(mp.channel); }catch(e){} }
+      mp.presence = {};
+      mp.channel = sb.channel('room-'+mp.roomCode, { config: { presence: { key: MP_CLIENT_ID } } })
+        .on('postgres_changes', { event:'UPDATE', schema:'public', table:'game_rooms', filter:`id=eq.${mp.roomId}` }, (payload)=>{
+          const row = payload.new;
+          const wasIn = mp.players.some(p=>p.clientId===MP_CLIENT_ID);
+          const stillIn = (row.players||[]).some(p=>p.clientId===MP_CLIENT_ID);
+          mp.players = row.players || [];
+          mp.difficulty = row.difficulty || mp.difficulty;
+          if(!mp.isHost && wasIn && !stillIn){
+            mpLeaveRoom();
+            mpShowError("Vous avez été exclu du salon par l'hôte.");
+            document.getElementById('mpHome').style.display = 'block';
+            document.getElementById('mpRoom').style.display = 'none';
+            return;
+          }
+          renderMpRoom();
+          renderMpDifficultyGrid();
+          if(row.started && row.state && !mpGame.active){
+            mpBeginSession(row.state, mp.isHost);
+          }
+        })
+        .on('presence', { event:'sync' }, ()=>{
+          mp.presence = mp.channel.presenceState();
+          renderMpRoom();
+        })
+        .subscribe(async (status)=>{
+          if(status === 'SUBSCRIBED'){
+            try{ await mp.channel.track({ pseudo: mp.myPseudo, online_at: new Date().toISOString() }); }catch(e){}
+          }
+        });
+    }catch(e){
+      console.error('[Empire Mondial MP] temps réel indisponible, on reste sur le rafraîchissement périodique.', e);
+    }
+  }
+
+  async function mpRefreshOnce(){
+    if(!mp.roomId) return;
+    const debugEl = document.getElementById('mpDebug');
+    const { data, error } = await sb.from('game_rooms').select('*').eq('id', mp.roomId).single();
+    const now = new Date().toLocaleTimeString('fr-FR');
+    if(error){
+      if(debugEl) debugEl.textContent = `Salon ${mp.roomCode} · erreur lecture (${now}) : ${error.message}`;
+      return;
+    }
+    if(data){
+      const wasIn = mp.players.some(p=>p.clientId===MP_CLIENT_ID);
+      const stillIn = (data.players||[]).some(p=>p.clientId===MP_CLIENT_ID);
+      mp.players = data.players||[]; mp.difficulty = data.difficulty;
+      if(debugEl){
+        const ids = (data.players||[]).map(p=>`${p.pseudo}#${p.clientId.slice(-4)}[${p.slot||'aucun camp'}${p.ready?',prêt':''}]`).join(', ') || '(aucun)';
+        debugEl.textContent = `Salon ${mp.roomCode} · id ${mp.roomId.slice(0,8)}… · actualisé ${now} · joueurs bruts : ${ids}`;
       }
-    }, 2500);
+      if(!mp.isHost && wasIn && !stillIn){
+        mpLeaveRoom();
+        mpShowError("Vous avez été exclu du salon par l'hôte.");
+        document.getElementById('mpHome').style.display = 'block';
+        document.getElementById('mpRoom').style.display = 'none';
+        return;
+      }
+      renderMpRoom(); renderMpDifficultyGrid();
+      if(data.started && data.state && !mpGame.active){
+        mpBeginSession(data.state, mp.isHost);
+      }
+    }
+  }
+
+  function mpStartPolling(){
+    if(mp.pollTimer) clearInterval(mp.pollTimer);
+    mp.pollTimer = setInterval(mpRefreshOnce, 2500);
   }
 
   async function mpLeaveRoom(){
@@ -2600,9 +2686,138 @@
   }
 
   async function mpStartGame(){
-    if(!mp.isHost) return;
-    await mpUpdateRoom({ started:true });
-    document.getElementById('mpStatus').textContent = "Partie lancée — synchronisation complète du déroulement de la partie arrive dans une prochaine mise à jour. Le salon reste ouvert.";
+    if(!mp.isHost){ mpShowStatusError("Seul l'hôte peut lancer la partie."); return; }
+    const readyPlayers = mp.players.filter(p=>p.slot);
+    if(readyPlayers.length===0){ mpShowStatusError('Personne n\'a encore choisi de camp — choisissez-en un chacun avant de lancer.'); return; }
+    const notReady = readyPlayers.filter(p=>!p.ready);
+    if(notReady.length>0){ mpShowStatusError(`En attente que ${notReady.map(p=>p.pseudo).join(', ')} se mette en "Prêt".`); return; }
+
+    document.getElementById('mpStatus').style.color = 'var(--muted)';
+    document.getElementById('mpStatus').textContent = 'Lancement de la partie…';
+
+    const playerSlotEntry = readyPlayers.find(p=>p.slot==='player');
+    const homeId = playerSlotEntry ? playerSlotEntry.homeId : HOME_CANDIDATES[Math.floor(Math.random()*HOME_CANDIDATES.length)];
+    let initialState;
+    try{
+      initialState = freshState(homeId, mp.difficulty);
+    }catch(e){
+      mpShowStatusError('Erreur à la création de la partie : '+e.message);
+      return;
+    }
+
+    const humanFactions = readyPlayers.map(p=>p.slot);
+    const factionOwners = {};
+    const factionNames = {};
+    readyPlayers.forEach(p=>{ factionOwners[p.slot] = p.clientId; factionNames[p.slot] = p.pseudo; });
+    initialState.multiplayer = { humanFactions, factionOwners, factionNames, roomId: mp.roomId };
+
+    const ok = await mpUpdateRoom({ started:true, state: initialState });
+    if(!ok) return; // mpUpdateRoom affiche déjà l'erreur exacte
+
+    mpBeginSession(initialState, true);
+  }
+
+  // Démarre la session multijoueur (appelé côté hôte juste après avoir créé l'état,
+  // et côté client dès qu'il détecte que la partie a été lancée)
+  function mpBeginSession(sharedState, isHostSession){
+    mpGame.active = true;
+    mpGame.isHost = isHostSession;
+    mpGame.roomId = mp.roomId;
+    mpGame.humanFactions = sharedState.multiplayer.humanFactions;
+    mpGame.factionOwners = sharedState.multiplayer.factionOwners;
+    mpGame.factionNames = sharedState.multiplayer.factionNames;
+    mpGame.myFaction = Object.keys(mpGame.factionOwners).find(f=>mpGame.factionOwners[f]===MP_CLIENT_ID) || 'player';
+
+    state = sharedState;
+    if(!DIFFICULTIES[state.difficulty]) state.difficulty = 'moyen';
+    if(!state.startTime) state.startTime = Date.now();
+
+    closeMultiplayerOverlay();
+    document.getElementById('startOverlay').classList.add('hidden');
+    document.getElementById('tutorialOverlay').classList.add('hidden');
+    render();
+    startLoop();          // ne démarre réellement que pour l'hôte (voir startLoop)
+    mpStartGamePolling();  // tous les clients tirent l'état à intervalle régulier
+  }
+
+  // Aiguille chaque action de jeu : exécution directe pour l'hôte, relais pour les autres
+  const MP_ACTIONS = {
+    recruit, playerAttack, transferTroops, buildBunker, buildUnit,
+    proposeAlliance, breakAlliance, contract, threatenFaction,
+    buildMissiles, launchMissile, buildNuclearFactory, buildNuclearBombs, launchNuclearBomb
+  };
+  function mpDispatch(fnName, args){
+    if(!mpGame.active || mpGame.isHost){
+      MP_ACTIONS[fnName].apply(null, args);
+      return;
+    }
+    mpQueueRemoteAction(fnName, args);
+  }
+
+  async function mpQueueRemoteAction(fnName, args){
+    try{
+      const { data } = await sb.from('game_rooms').select('pending_actions').eq('id', mpGame.roomId).single();
+      const pending = (data && data.pending_actions) || [];
+      pending.push({ faction: mpGame.myFaction, fn: fnName, args, ts: Date.now() });
+      await sb.from('game_rooms').update({ pending_actions: pending, updated_at:new Date().toISOString() }).eq('id', mpGame.roomId);
+    }catch(e){ console.error('[Empire Mondial MP] échec envoi action', e); }
+  }
+
+  // Côté hôte uniquement : applique les actions en attente envoyées par les autres joueurs
+  async function mpProcessPendingActions(){
+    if(!mpGame.active || !mpGame.isHost) return;
+    try{
+      const { data } = await sb.from('game_rooms').select('pending_actions').eq('id', mpGame.roomId).single();
+      const pending = (data && data.pending_actions) || [];
+      if(pending.length===0) return;
+      pending.forEach(action=>{
+        const fn = MP_ACTIONS[action.fn];
+        if(!fn) return;
+        mpGame.applyingRemoteFaction = action.faction;
+        try{ fn.apply(null, action.args); }catch(e){ console.error('[Empire Mondial MP] action distante échouée', e); }
+        mpGame.applyingRemoteFaction = null;
+      });
+      await sb.from('game_rooms').update({ pending_actions: [], updated_at:new Date().toISOString() }).eq('id', mpGame.roomId);
+    }catch(e){ console.error('[Empire Mondial MP] échec lecture actions', e); }
+  }
+
+  // Envoie l'état à jour vers Supabase (hôte uniquement — source de vérité)
+  let mpBroadcastPending = false;
+  async function mpBroadcastState(){
+    if(!mpGame.active || !mpGame.isHost || !state) return;
+    if(mpBroadcastPending) return;
+    mpBroadcastPending = true;
+    try{
+      await sb.from('game_rooms').update({ state, updated_at:new Date().toISOString() }).eq('id', mpGame.roomId);
+    }catch(e){ console.error('[Empire Mondial MP] échec envoi état', e); }
+    mpBroadcastPending = false;
+  }
+
+  // À appeler après toute action locale qui modifie l'état partagé
+  function mpSyncAfterAction(){
+    if(!mpGame.active) return;
+    if(mpGame.isHost) mpBroadcastState();
+  }
+
+  // Boucle de synchronisation en jeu : l'hôte traite les actions reçues puis republie l'état ;
+  // les autres clients relisent l'état partagé et l'affichent.
+  function mpStartGamePolling(){
+    if(mpGame.syncTimer) clearInterval(mpGame.syncTimer);
+    mpGame.syncTimer = setInterval(async ()=>{
+      if(!mpGame.active) return;
+      if(mpGame.isHost){
+        await mpProcessPendingActions();
+      } else {
+        try{
+          const { data } = await sb.from('game_rooms').select('state').eq('id', mpGame.roomId).single();
+          if(data && data.state){
+            state = data.state;
+            if(!DIFFICULTIES[state.difficulty]) state.difficulty = 'moyen';
+            render();
+          }
+        }catch(e){ console.error('[Empire Mondial MP] échec lecture état', e); }
+      }
+    }, 2000);
   }
 
   document.getElementById('btnOpenMultiplayer').addEventListener('click', openMultiplayerOverlay);
@@ -2611,6 +2826,7 @@
   document.getElementById('btnMpJoin').addEventListener('click', mpJoinRoom);
   document.getElementById('btnMpLeave').addEventListener('click', mpLeaveRoom);
   document.getElementById('btnMpStart').addEventListener('click', mpStartGame);
+  document.getElementById('btnMpRefresh').addEventListener('click', mpRefreshOnce);
 
   /* ============ DÉMARRAGE ============ */
   const NAME_MAP = {};
