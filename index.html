@@ -356,6 +356,7 @@
           <div style="font-size:11px;color:var(--muted);">CODE DU SALON</div>
           <div id="mpRoomCode" style="font-size:28px;letter-spacing:.25em;color:var(--brass);font-weight:600;">——————</div>
         </div>
+        <p id="mpRoomError" style="color:var(--crimson);font-size:12px;text-align:center;min-height:14px;margin:0 0 10px;"></p>
 
         <div id="mpDiffBlock" style="margin-bottom:16px;">
           <h3 style="font-size:11px;color:var(--brass);letter-spacing:.08em;text-transform:uppercase;margin:0 0 8px;">Difficulté (hôte)</h3>
@@ -2387,6 +2388,14 @@
     if(el){ el.textContent = msg; el.style.color = 'var(--crimson)'; }
     console.error('[Empire Mondial MP]', msg);
   }
+  let mpRoomErrorTimer = null;
+  function mpShowRoomError(msg){
+    const el = document.getElementById('mpRoomError');
+    if(el){ el.textContent = msg; }
+    console.error('[Empire Mondial MP]', msg);
+    if(mpRoomErrorTimer) clearTimeout(mpRoomErrorTimer);
+    mpRoomErrorTimer = setTimeout(()=>{ if(el) el.textContent = ''; }, 6000);
+  }
   async function mpUpdateRoom(fields){
     const { error } = await sb.from('game_rooms').update({ ...fields, updated_at:new Date().toISOString() }).eq('id', mp.roomId);
     if(error){ mpShowStatusError('Erreur de synchronisation : '+error.message); return false; }
@@ -2566,7 +2575,7 @@
   async function mpToggleReady(){
     const mine = mp.players.find(p=>p.clientId===MP_CLIENT_ID);
     if(mine && !mine.ready && !mine.homeId){
-      mpShowStatusError('Choisissez votre nation de départ avant de vous mettre "Prêt".');
+      mpShowRoomError('Choisissez votre nation de départ avant de vous mettre "Prêt".');
       return;
     }
     const players = mp.players.map(p=> p.clientId===MP_CLIENT_ID ? { ...p, ready: !p.ready } : p);
@@ -2592,7 +2601,7 @@
     if(slotKey && serverPlayers.some(p=>p.slot===slotKey && p.clientId!==MP_CLIENT_ID)){
       mp.players = serverPlayers;
       renderMpRoom();
-      mpShowStatusError('Trop tard, ce camp vient d\'être pris par quelqu\'un d\'autre — choisissez-en un autre.');
+      mpShowRoomError('Trop tard, ce camp vient d\'être pris par quelqu\'un d\'autre — choisissez-en un autre.');
       return;
     }
 
@@ -2760,30 +2769,30 @@
   }
 
   async function mpStartGame(){
-    if(!mp.isHost){ mpShowStatusError("Seul l'hôte peut lancer la partie."); return; }
+    if(!mp.isHost){ mpShowRoomError("Seul l'hôte peut lancer la partie."); return; }
     const readyPlayers = mp.players.filter(p=>p.slot);
-    if(readyPlayers.length===0){ mpShowStatusError('Personne n\'a encore choisi de camp — choisissez-en un chacun avant de lancer.'); return; }
+    if(readyPlayers.length===0){ mpShowRoomError('Personne n\'a encore choisi de camp — choisissez-en un chacun avant de lancer.'); return; }
     const notReady = readyPlayers.filter(p=>!p.ready);
-    if(notReady.length>0){ mpShowStatusError(`En attente que ${notReady.map(p=>p.pseudo).join(', ')} se mette en "Prêt".`); return; }
+    if(notReady.length>0){ mpShowRoomError(`En attente que ${notReady.map(p=>p.pseudo).join(', ')} se mette en "Prêt".`); return; }
 
     const slotCounts = {};
     readyPlayers.forEach(p=>{ slotCounts[p.slot] = (slotCounts[p.slot]||0)+1; });
     const clash = Object.keys(slotCounts).find(s=>slotCounts[s]>1);
     if(clash){
-      mpShowStatusError(`Deux joueurs ont choisi le même camp (${clash}) — l'un des deux doit en reprendre un autre.`);
+      mpShowRoomError(`Deux joueurs ont choisi le même camp (${clash}) — l'un des deux doit en reprendre un autre.`);
       return;
     }
 
     const noHome = readyPlayers.find(p=>!p.homeId);
     if(noHome){
-      mpShowStatusError(`${noHome.pseudo} n'a pas encore choisi de nation de départ.`);
+      mpShowRoomError(`${noHome.pseudo} n'a pas encore choisi de nation de départ.`);
       return;
     }
     const homeCounts = {};
     readyPlayers.forEach(p=>{ homeCounts[p.homeId] = (homeCounts[p.homeId]||0)+1; });
     const homeClash = Object.keys(homeCounts).find(h=>homeCounts[h]>1);
     if(homeClash){
-      mpShowStatusError(`Deux joueurs ont choisi la même nation de départ (${NAME_MAP[homeClash]}) — l'un des deux doit en reprendre une autre.`);
+      mpShowRoomError(`Deux joueurs ont choisi la même nation de départ (${NAME_MAP[homeClash]}) — l'un des deux doit en reprendre une autre.`);
       return;
     }
 
@@ -2794,7 +2803,7 @@
     try{
       initialState = buildMultiplayerState(readyPlayers, mp.difficulty);
     }catch(e){
-      mpShowStatusError('Erreur à la création de la partie : '+e.message);
+      mpShowRoomError('Erreur à la création de la partie : '+e.message);
       return;
     }
 
