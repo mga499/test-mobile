@@ -1970,7 +1970,15 @@
     document.getElementById('statTroops').textContent = totalTroops;
     document.getElementById('statTerr').textContent = `${ownedList(f).length}/170`;
     document.getElementById('statTick').textContent = state.tick;
-    const nationLabel = f==='player' ? `NATION DE ${byId[state.home].name.toUpperCase()}` : (FACTIONS[f]?FACTIONS[f].name.toUpperCase():f.toUpperCase());
+    let nationLabel;
+    const mpHome = mpGame.active && state.multiplayer && state.multiplayer.factionHomes ? state.multiplayer.factionHomes[f] : null;
+    if(mpHome && byId[mpHome]){
+      nationLabel = `NATION DE ${byId[mpHome].name.toUpperCase()}`;
+    } else if(f==='player'){
+      nationLabel = `NATION DE ${byId[state.home].name.toUpperCase()}`;
+    } else {
+      nationLabel = FACTIONS[f] ? FACTIONS[f].name.toUpperCase() : f.toUpperCase();
+    }
     const mpTag = mpGame.active ? ' — 🌐 MULTIJOUEUR' : '';
     document.getElementById('playerTitle').textContent = `${currentPseudo().toUpperCase()} — ${nationLabel} — ${(DIFFICULTIES[state.difficulty]||DIFFICULTIES.moyen).label.toUpperCase()}${mpTag}`;
     renderTopbarFlag();
@@ -2351,10 +2359,10 @@
   // Les 4 camps jouables en multijoueur : l'empire "modeste" (départ à 1 pays, comme en solo)
   // et les 3 empires déjà établis. Chacun peut être pris par un humain, sinon reste IA.
   const MP_SLOTS = [
-    { key:'player',  label:'Votre Empire (départ modeste)' },
-    { key:'crimson', label:'Bloc Cramoisi (empire établi)' },
-    { key:'violet',  label:'Syndicat Violet (empire établi)' },
-    { key:'amber',   label:'Confédération Ambre (empire établi)' }
+    { key:'player',  label:'Joueur 1' },
+    { key:'crimson', label:'Joueur 2' },
+    { key:'violet',  label:'Joueur 3' },
+    { key:'amber',   label:'Joueur 4' }
   ];
 
   const mp = {
@@ -2522,7 +2530,7 @@
     mp.mySlot = mySlotEntry ? mySlotEntry.slot : null;
 
     const homeBlock = document.getElementById('mpHomePickBlock');
-    if(mp.mySlot==='player'){
+    if(mp.mySlot){
       homeBlock.style.display = 'block';
       const homeGrid = document.getElementById('mpHomeGrid');
       homeGrid.innerHTML = HOME_CANDIDATES.map(id=>{
@@ -2556,6 +2564,11 @@
   }
 
   async function mpToggleReady(){
+    const mine = mp.players.find(p=>p.clientId===MP_CLIENT_ID);
+    if(mine && !mine.ready && !mine.homeId){
+      mpShowStatusError('Choisissez votre nation de départ avant de vous mettre "Prêt".');
+      return;
+    }
     const players = mp.players.map(p=> p.clientId===MP_CLIENT_ID ? { ...p, ready: !p.ready } : p);
     mp.players = players;
     renderMpRoom();
@@ -2696,6 +2709,56 @@
     document.getElementById('mpRoom').style.display = 'none';
   }
 
+  // Construit l'état de départ multijoueur : chaque joueur humain part avec SON SEUL
+  // territoire choisi (comme en solo), quelle que soit la faction qu'il incarne.
+  // Les factions non prises par un humain gardent leur empire IA classique déjà établi.
+  function buildMultiplayerState(readyPlayers, difficulty){
+    difficulty = DIFFICULTIES[difficulty] ? difficulty : 'moyen';
+    const diff = DIFFICULTIES[difficulty];
+    const countries = {};
+    COUNTRIES.forEach(c=>{
+      countries[c.id] = { owner: INITIAL_OWNERS[c.id], troops: c.troops, population: c.troops*POP_MULTIPLIER, bunkers: 0 };
+    });
+
+    // libère d'abord tout le territoire des factions reprises par un humain (elles ne
+    // gardent pas leur empire IA établi — chacun repart de zéro, à égalité)
+    readyPlayers.forEach(p=>{
+      Object.keys(countries).forEach(cid=>{
+        if(countries[cid].owner===p.slot) countries[cid].owner = 'neutral';
+      });
+    });
+
+    // installe chaque joueur sur sa seule nation de départ choisie
+    readyPlayers.forEach(p=>{
+      countries[p.homeId].owner = p.slot;
+      countries[p.homeId].troops += diff.homeBonus;
+    });
+
+    const gold = { player:diff.startGold, crimson:diff.startGold, violet:diff.startGold, amber:diff.startGold };
+    readyPlayers.forEach(p=>{ gold[p.slot] = diff.startGold; });
+
+    return {
+      home: (readyPlayers.find(p=>p.slot==='player')||{}).homeId || null,
+      difficulty,
+      countries,
+      gold,
+      relations: { crimson:0, violet:0, amber:0 },
+      alliances: { crimson:false, violet:false, amber:false },
+      hostility: { crimson:0, violet:0, amber:0 },
+      missiles: 0,
+      nuclearFactories: 0,
+      nuclearBombs: 0,
+      civilianDeathsCaused: 0,
+      totalCivilianDeaths: 0,
+      selected: null,
+      tick: 0,
+      over: false,
+      log: [],
+      startTime: Date.now(),
+      finalElapsedMs: null
+    };
+  }
+
   async function mpStartGame(){
     if(!mp.isHost){ mpShowStatusError("Seul l'hôte peut lancer la partie."); return; }
     const readyPlayers = mp.players.filter(p=>p.slot);
@@ -2711,14 +2774,25 @@
       return;
     }
 
+    const noHome = readyPlayers.find(p=>!p.homeId);
+    if(noHome){
+      mpShowStatusError(`${noHome.pseudo} n'a pas encore choisi de nation de départ.`);
+      return;
+    }
+    const homeCounts = {};
+    readyPlayers.forEach(p=>{ homeCounts[p.homeId] = (homeCounts[p.homeId]||0)+1; });
+    const homeClash = Object.keys(homeCounts).find(h=>homeCounts[h]>1);
+    if(homeClash){
+      mpShowStatusError(`Deux joueurs ont choisi la même nation de départ (${NAME_MAP[homeClash]}) — l'un des deux doit en reprendre une autre.`);
+      return;
+    }
+
     document.getElementById('mpStatus').style.color = 'var(--muted)';
     document.getElementById('mpStatus').textContent = 'Lancement de la partie…';
 
-    const playerSlotEntry = readyPlayers.find(p=>p.slot==='player');
-    const homeId = playerSlotEntry ? playerSlotEntry.homeId : HOME_CANDIDATES[Math.floor(Math.random()*HOME_CANDIDATES.length)];
     let initialState;
     try{
-      initialState = freshState(homeId, mp.difficulty);
+      initialState = buildMultiplayerState(readyPlayers, mp.difficulty);
     }catch(e){
       mpShowStatusError('Erreur à la création de la partie : '+e.message);
       return;
@@ -2728,7 +2802,9 @@
     const factionOwners = {};
     const factionNames = {};
     readyPlayers.forEach(p=>{ factionOwners[p.slot] = p.clientId; factionNames[p.slot] = p.pseudo; });
-    initialState.multiplayer = { humanFactions, factionOwners, factionNames, roomId: mp.roomId };
+    const factionHomes = {};
+    readyPlayers.forEach(p=>{ factionHomes[p.slot] = p.homeId; });
+    initialState.multiplayer = { humanFactions, factionOwners, factionNames, factionHomes, roomId: mp.roomId };
 
     const ok = await mpUpdateRoom({ started:true, state: initialState });
     if(!ok) return; // mpUpdateRoom affiche déjà l'erreur exacte
