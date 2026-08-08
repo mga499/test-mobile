@@ -2312,6 +2312,17 @@
     document.getElementById('mpError').textContent = msg;
   }
 
+  function mpShowStatusError(msg){
+    const el = document.getElementById('mpStatus');
+    if(el){ el.textContent = msg; el.style.color = 'var(--crimson)'; }
+    console.error('[Empire Mondial MP]', msg);
+  }
+  async function mpUpdateRoom(fields){
+    const { error } = await sb.from('game_rooms').update({ ...fields, updated_at:new Date().toISOString() }).eq('id', mp.roomId);
+    if(error){ mpShowStatusError('Erreur de synchronisation : '+error.message); return false; }
+    return true;
+  }
+
   function openMultiplayerOverlay(){
     document.getElementById('mpError').textContent = '';
     document.getElementById('mpHome').style.display = 'block';
@@ -2346,7 +2357,7 @@
       enterRoomUI();
       mpSubscribe();
     }catch(e){
-      mpShowError("Impossible de créer le salon (vérifiez la table Supabase).");
+      mpShowError("Impossible de créer le salon : " + (e && e.message ? e.message : 'vérifiez la table Supabase.'));
     }
   }
 
@@ -2358,7 +2369,7 @@
     mp.myPseudo = pseudo;
     try{
       const { data, error } = await sb.from('game_rooms').select('*').eq('code', code).single();
-      if(error || !data){ mpShowError('Salon introuvable.'); return; }
+      if(error || !data){ mpShowError('Salon introuvable' + (error && error.message ? (' : '+error.message) : (' (code "'+code+'").'))); return; }
       if(data.started){ mpShowError('Cette partie a déjà commencé.'); return; }
       mp.roomId = data.id;
       mp.roomCode = data.code;
@@ -2367,13 +2378,13 @@
       let players = data.players || [];
       if(!players.some(p=>p.clientId===MP_CLIENT_ID)){
         players = [...players, { clientId:MP_CLIENT_ID, pseudo, slot:null, homeId:null, ready:false, isHost:mp.isHost }];
-        await sb.from('game_rooms').update({ players, updated_at:new Date().toISOString() }).eq('id', mp.roomId);
+        await mpUpdateRoom({ players });
       }
       mp.players = players;
       enterRoomUI();
       mpSubscribe();
     }catch(e){
-      mpShowError('Salon introuvable.');
+      mpShowError('Salon introuvable : ' + (e && e.message ? e.message : ''));
     }
   }
 
@@ -2397,7 +2408,7 @@
         b.addEventListener('click', async ()=>{
           mp.difficulty = b.dataset.diff;
           renderMpDifficultyGrid();
-          await sb.from('game_rooms').update({ difficulty: mp.difficulty, updated_at:new Date().toISOString() }).eq('id', mp.roomId);
+          await mpUpdateRoom({ difficulty: mp.difficulty });
         });
       });
     }
@@ -2485,7 +2496,7 @@
     const players = mp.players.map(p=> p.clientId===MP_CLIENT_ID ? { ...p, ready: !p.ready } : p);
     mp.players = players;
     renderMpRoom();
-    await sb.from('game_rooms').update({ players, updated_at:new Date().toISOString() }).eq('id', mp.roomId);
+    await mpUpdateRoom({ players });
   }
 
   async function mpKickPlayer(clientId){
@@ -2493,7 +2504,7 @@
     const players = mp.players.filter(p=>p.clientId!==clientId);
     mp.players = players;
     renderMpRoom();
-    await sb.from('game_rooms').update({ players, updated_at:new Date().toISOString() }).eq('id', mp.roomId);
+    await mpUpdateRoom({ players });
   }
 
   async function mpClaimSlot(slotKey){
@@ -2511,14 +2522,14 @@
     }
     mp.players = players;
     renderMpRoom();
-    await sb.from('game_rooms').update({ players, updated_at:new Date().toISOString() }).eq('id', mp.roomId);
+    await mpUpdateRoom({ players });
   }
 
   async function mpSetHome(homeId){
     const players = mp.players.map(p=> p.clientId===MP_CLIENT_ID ? { ...p, homeId } : p);
     mp.players = players;
     renderMpRoom();
-    await sb.from('game_rooms').update({ players, updated_at:new Date().toISOString() }).eq('id', mp.roomId);
+    await mpUpdateRoom({ players });
   }
 
   function mpSubscribe(){
@@ -2581,7 +2592,7 @@
     if(mp.pollTimer){ clearInterval(mp.pollTimer); mp.pollTimer=null; }
     if(mp.roomId && !mp.isHost){
       const players = mp.players.filter(p=>p.clientId!==MP_CLIENT_ID);
-      try{ await sb.from('game_rooms').update({ players, updated_at:new Date().toISOString() }).eq('id', mp.roomId); }catch(e){}
+      try{ await mpUpdateRoom({ players }); }catch(e){}
     }
     mp.roomId=null; mp.roomCode=null; mp.isHost=false; mp.mySlot=null; mp.players=[]; mp.presence={};
     document.getElementById('mpHome').style.display = 'block';
@@ -2590,7 +2601,7 @@
 
   async function mpStartGame(){
     if(!mp.isHost) return;
-    await sb.from('game_rooms').update({ started:true, updated_at:new Date().toISOString() }).eq('id', mp.roomId);
+    await mpUpdateRoom({ started:true });
     document.getElementById('mpStatus').textContent = "Partie lancée — synchronisation complète du déroulement de la partie arrive dans une prochaine mise à jour. Le salon reste ouvert.";
   }
 
