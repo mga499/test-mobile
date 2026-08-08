@@ -64,6 +64,40 @@
   #mapWrap{flex:1;position:relative;overflow:hidden;cursor:grab;background:var(--bg-deep);touch-action:none;min-height:120px;}
 
   #rotateHint{display:none;}
+
+  #tutoSpotlight{
+    position:fixed;z-index:45;pointer-events:none;border-radius:10px;
+    box-shadow:0 0 0 9999px rgba(5,6,4,0.72);
+    transition:top .3s ease, left .3s ease, width .3s ease, height .3s ease, opacity .2s ease;
+    opacity:0;
+  }
+  #tutoSpotlight.show{opacity:1;}
+  #tutoPointer{
+    position:fixed;z-index:46;font-size:34px;pointer-events:none;
+    transition:top .3s ease, left .3s ease, opacity .2s ease;
+    opacity:0;filter:drop-shadow(0 2px 6px rgba(0,0,0,.6));
+    animation:tutoBounce 1s ease-in-out infinite;
+  }
+  #tutoPointer.show{opacity:1;}
+  @keyframes tutoBounce{
+    0%,100%{ transform:translate(0,0); }
+    50%{ transform:translate(-6px,-6px); }
+  }
+  #tutoBubble{
+    position:fixed;z-index:47;max-width:280px;background:var(--panel);
+    border:1px solid var(--brass);border-radius:8px;padding:14px 16px;
+    box-shadow:0 8px 24px rgba(0,0,0,.5);
+    transition:top .3s ease, left .3s ease, opacity .2s ease;
+    opacity:0;pointer-events:none;
+  }
+  #tutoBubble.show{opacity:1;pointer-events:auto;}
+  #tutoBubbleStep{font-size:10px;color:var(--brass);letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px;}
+  #tutoBubble p{margin:0;font-size:12.5px;color:var(--parchment);line-height:1.6;}
+  #btnTutoGuidedSkip{
+    background:transparent;border:none;color:var(--muted);font-size:10px;
+    text-decoration:underline;cursor:pointer;padding:0;
+  }
+  #btnTutoGuidedSkip:hover{color:var(--brass);}
   @media (max-width:820px) and (orientation:portrait){
     #rotateHint{
       display:flex;align-items:center;gap:8px;justify-content:center;
@@ -228,6 +262,16 @@
 
   <div id="rotateHint">📱 Tournez votre appareil pour jouer en mode paysage — plus confortable pour la carte. <button id="rotateHintClose">✕</button></div>
 
+  <div id="tutoSpotlight"></div>
+  <div id="tutoPointer">👉</div>
+  <div id="tutoBubble">
+    <div id="tutoBubbleStep">Étape 1/5</div>
+    <p id="tutoBubbleText">—</p>
+    <div class="continueRow" style="margin-top:10px;justify-content:flex-end;">
+      <button id="btnTutoGuidedSkip">Passer le tutoriel</button>
+    </div>
+  </div>
+
   <div id="topbar">
     <div class="brand">
       <span id="topbarFlag"></span>
@@ -288,20 +332,51 @@
   <div class="overlay hidden" id="tutorialOverlay">
     <div class="overlayBox" style="max-width:640px;text-align:left;">
       <h1 style="text-align:center;">Comment jouer</h1>
-      <div style="font-size:13px;color:var(--parchment);line-height:1.7;margin-bottom:20px;">
-        <p><b style="color:var(--brass);">Objectif :</b> conquérir la totalité des territoires du globe, un par un, en partant d'une seule nation.</p>
-        <p><b style="color:var(--brass);">La carte :</b> utilisez la molette pour zoomer, glissez avec la souris (ou le doigt) pour vous déplacer. Cliquez sur un territoire pour voir son détail dans le panneau de droite.</p>
-        <p><b style="color:var(--brass);">Vos territoires :</b> recrutez des troupes contre de l'or, puis attaquez un territoire voisin en choisissant combien de troupes envoyer. Plus vous en envoyez, plus vos chances de conquête augmentent — mais les troupes envoyées sont perdues en cas d'échec.</p>
-        <p><b style="color:var(--brass);">Diplomatie :</b> avec chacune des 3 factions IA, vous pouvez proposer une <b>alliance</b> (elles ne vous attaqueront plus) ou un <b>contrat commercial</b> (de l'or contre des troupes, et de meilleures relations). Attention : une alliance non entretenue se dégrade avec le temps et finit par se rompre d'elle-même si vos relations tombent trop bas — pensez à renouveler les contrats commerciaux pour la maintenir. Vous pouvez aussi <b>menacer</b> une faction non alliée pour faire monter les tensions et préparer la guerre : ses relations avec vous chutent et elle devient hostile, prête à vous attaquer en priorité.</p>
-        <p><b style="color:var(--brass);">Arsenal :</b> construisez des <b>missiles</b> contre de l'or et frappez n'importe quel territoire de la carte, même non adjacent, pour affaiblir sa garnison à distance sans le capturer.</p>
-        <p><b style="color:var(--brass);">Programme nucléaire :</b> construisez une <b>usine nucléaire</b> (très coûteuse), puis fabriquez des <b>bombes nucléaires</b> pour détruire 70% de la garnison d'un territoire ciblé en une seule frappe. Un moyen radical mais ruineux de faire pencher la balance.</p>
-        <p><b style="color:var(--brass);">Population civile :</b> chaque territoire a une population qui peut être tuée par les combats, les missiles et surtout le nucléaire. Construisez des <b>bunkers</b> sur vos territoires pour protéger vos civils. Attention : plus vous causez de morts civiles, plus votre trésor subit une <b>fuite d'argent chaque tour</b> (coût politique de la guerre) — visible en haut de l'écran.</p>
-        <p><b style="color:var(--brass);">Forces spécialisées :</b> sur vos territoires, construisez des <b>chars</b>, <b>navires de guerre</b>, <b>hélicoptères</b> et <b>avions de chasse</b>. Chaque unité renforce durablement la puissance de ce territoire, à l'attaque comme à la défense, sans jamais être "envoyée" ni perdue (sauf si le territoire tombe). Les IA en construisent aussi sur leurs propres territoires — un bonus de défense apparaît sur les cibles bien équipées.</p>
-        <p><b style="color:var(--brass);">Le temps qui passe :</b> le jeu avance tout seul, tour après tour : vous gagnez de l'or, vos garnisons se renforcent un peu, et les IA recrutent ou attaquent de leur côté.</p>
-        <p><b style="color:var(--brass);">Sauvegarde :</b> la partie est enregistrée automatiquement dans votre navigateur. Vous pouvez aussi sauvegarder, charger ou recommencer depuis les boutons en haut de l'écran.</p>
+      <p id="tutoProgress" style="text-align:center;font-size:11px;color:var(--muted);margin:-6px 0 14px;letter-spacing:.08em;text-transform:uppercase;">Page 1 / 6</p>
+
+      <div class="tutoPage" data-page="0" style="font-size:13px;color:var(--parchment);line-height:1.7;margin-bottom:16px;">
+        <p><b style="color:var(--brass);">Les bases d'un jeu de stratégie :</b> ce type de jeu (parfois appelé "4X") se joue sur une carte divisée en <b>territoires</b>. Chaque territoire a des <b>troupes</b> (sa force militaire) et rapporte des <b>ressources</b> (ici, de l'or) à chaque tour. Le temps avance automatiquement, tour après tour — pas besoin d'appuyer sur "suivant" comme aux échecs, tout le monde (vous et les IA) agit en même temps, en continu.</p>
+        <p>Le principe général : plus vous contrôlez de territoires, plus vous générez de ressources, plus vous pouvez construire de troupes et d'infrastructures, plus vous pouvez conquérir de nouveaux territoires. C'est une boucle qui s'auto-alimente — d'où l'intérêt de bien démarrer.</p>
+        <p><b style="color:var(--brass);">Objectif de ce jeu :</b> conquérir la totalité des 170 territoires du globe, en partant d'une seule nation face à 3 empires rivaux dirigés par l'IA.</p>
       </div>
-      <div class="continueRow">
-        <button class="primaryBtn" id="btnTutoDone" style="border-radius:5px;padding:12px 24px;">Compris, commencer</button>
+
+      <div class="tutoPage" data-page="1" style="font-size:13px;color:var(--parchment);line-height:1.7;margin-bottom:16px;display:none;">
+        <p><b style="color:var(--brass);">La carte :</b> molette (ou pincement à deux doigts sur mobile) pour zoomer, glissez avec la souris (ou le doigt) pour vous déplacer. Cliquez sur un territoire pour voir son détail dans le panneau de droite (ou en bas sur mobile, via le bouton "☰ Panneau").</p>
+        <p><b style="color:var(--brass);">L'or :</b> chaque territoire que vous possédez rapporte de l'or à chaque tour, visible en haut de l'écran ("TRÉSOR"). C'est votre seule ressource — elle sert à tout construire (troupes, bâtiments, armes).</p>
+        <p><b style="color:var(--brass);">Recruter des troupes :</b> sélectionnez un de vos territoires, puis "Recruter" contre de l'or. Plus un territoire a de troupes, plus il est difficile à envahir, et plus vous pouvez en envoyer loin pour attaquer.</p>
+        <p><b style="color:var(--brass);">Transférer :</b> vous pouvez déplacer des troupes entre deux de vos territoires voisins, pour renforcer une frontière menacée sans repasser par le recrutement.</p>
+      </div>
+
+      <div class="tutoPage" data-page="2" style="font-size:13px;color:var(--parchment);line-height:1.7;margin-bottom:16px;display:none;">
+        <p><b style="color:var(--brass);">Attaquer :</b> sélectionnez un de vos territoires, choisissez une cible adjacente (qui n'est pas à vous), et décidez combien de troupes envoyer. Plus vous en envoyez par rapport à la défense adverse, plus vos chances de conquête sont grandes — mais les troupes envoyées sont perdues en cas d'échec, gagnées ou non.</p>
+        <p><b style="color:var(--brass);">La défense</b> d'un territoire dépend de ses troupes, mais aussi des bunkers et des forces spécialisées qui y sont construits (voir plus loin) — un territoire modeste en troupes peut être bien plus coriace qu'il n'y paraît.</p>
+        <p><b style="color:var(--brass);">Forces spécialisées :</b> sur vos territoires, construisez des <b>chars</b>, <b>navires de guerre</b>, <b>hélicoptères</b> et <b>avions de chasse</b>. Chaque unité renforce durablement la puissance de ce territoire, à l'attaque comme à la défense, sans jamais être "envoyée" ni perdue (sauf si le territoire tombe). Les IA en construisent aussi — un bonus "+X%" apparaît sur les cibles bien équipées.</p>
+      </div>
+
+      <div class="tutoPage" data-page="3" style="font-size:13px;color:var(--parchment);line-height:1.7;margin-bottom:16px;display:none;">
+        <p><b style="color:var(--brass);">Diplomatie :</b> avec chacune des 3 factions IA, vous pouvez proposer une <b>alliance</b> (elles ne vous attaqueront plus) ou un <b>contrat commercial</b> (de l'or contre des troupes, et de meilleures relations).</p>
+        <p>Attention : une alliance non entretenue se dégrade avec le temps et finit par se rompre d'elle-même si vos relations tombent trop bas — pensez à renouveler les contrats commerciaux pour la maintenir.</p>
+        <p><b style="color:var(--brass);">Menacer :</b> vous pouvez aussi menacer une faction non alliée pour faire monter les tensions et préparer la guerre : ses relations avec vous chutent et elle devient hostile, prête à vous attaquer en priorité. Utile pour provoquer un conflit à votre avantage plutôt que subir une attaque surprise.</p>
+      </div>
+
+      <div class="tutoPage" data-page="4" style="font-size:13px;color:var(--parchment);line-height:1.7;margin-bottom:16px;display:none;">
+        <p><b style="color:var(--brass);">Arsenal :</b> construisez des <b>missiles</b> contre de l'or et frappez n'importe quel territoire de la carte, même non adjacent, pour affaiblir sa garnison à distance sans le capturer.</p>
+        <p><b style="color:var(--brass);">Programme nucléaire :</b> construisez une <b>usine nucléaire</b> (très coûteuse), puis fabriquez des <b>bombes nucléaires</b> pour détruire 70% de la garnison d'un territoire ciblé en une seule frappe. Radical, mais ruineux.</p>
+        <p><b style="color:var(--brass);">Population civile :</b> chaque territoire a une population qui peut être tuée par les combats, les missiles et surtout le nucléaire. Construisez des <b>bunkers</b> pour protéger vos civils. Plus vous causez de morts civiles, plus votre trésor subit une <b>fuite d'argent chaque tour</b> (coût politique de la guerre) — visible en haut de l'écran.</p>
+      </div>
+
+      <div class="tutoPage" data-page="5" style="font-size:13px;color:var(--parchment);line-height:1.7;margin-bottom:16px;display:none;">
+        <p><b style="color:var(--brass);">Multijoueur en ligne :</b> depuis l'écran de démarrage, créez ou rejoignez un salon avec un code, choisissez votre camp et votre nation de départ, mettez-vous "Prêt", et l'hôte lance la partie. Chaque joueur humain part avec son propre territoire, à égalité ; les camps non pris restent gérés par l'IA.</p>
+        <p><b style="color:var(--brass);">Sauvegarde :</b> en solo, la partie s'enregistre automatiquement dans votre navigateur. Vous pouvez aussi sauvegarder, charger ou recommencer depuis les boutons en haut de l'écran.</p>
+        <p><b style="color:var(--brass);">Difficulté :</b> de Facile à Impossible, elle ajuste votre bonus de départ et l'agressivité de l'IA. Ce guide reste accessible à tout moment via le bouton "Comment jouer ?" en haut de l'écran.</p>
+      </div>
+
+      <div class="continueRow" style="justify-content:space-between;display:flex;">
+        <button id="btnTutoPrev" style="background:var(--panel-2);border:1px solid var(--line);color:var(--parchment);border-radius:5px;padding:10px 18px;visibility:hidden;">◀ Précédent</button>
+        <button class="primaryBtn" id="btnTutoNext" style="border-radius:5px;padding:12px 24px;">Suivant ▶</button>
+      </div>
+      <div class="continueRow" style="margin-top:10px;">
+        <button id="btnTutoGuided" style="background:var(--panel-2);border:1px solid var(--brass-dim);color:var(--brass);border-radius:5px;padding:10px 18px;">🎓 Essayer le tutoriel guidé (pas à pas)</button>
       </div>
     </div>
   </div>
@@ -1217,6 +1292,7 @@
     saveGame();
     render();
     mpSyncAfterAction();
+    tutorialSignal('attack');
   }
 
   function transferTroops(fromId, toId, amount){
@@ -1253,6 +1329,7 @@
     saveGame();
     render();
     mpSyncAfterAction();
+    tutorialSignal('recruit');
   }
 
   function proposeAlliance(f){
@@ -1269,6 +1346,7 @@
     }
     saveGame();
     render();
+    tutorialSignal('alliance');
   }
 
   function breakAlliance(f){
@@ -2247,6 +2325,7 @@
     renderDiplo();
     renderLog();
     checkLocalElimination();
+    updateGuidedTutorial();
   }
 
   function checkLocalElimination(){
@@ -2256,6 +2335,135 @@
       document.getElementById('eliminatedOverlay').classList.remove('hidden');
     }
   }
+
+  /* ============ TUTORIEL GUIDÉ (pas à pas, avec halo et main) ============ */
+  const guidedTutorial = {
+    active:false, step:0, signals:{},
+    steps:[
+      {
+        text:"Cliquez sur l'un de vos territoires sur la carte (en cyan, c'est le vôtre) pour le sélectionner.",
+        target: ()=> document.getElementById('shape-'+state.home),
+        done: ()=> localSelected && state.countries[localSelected] && state.countries[localSelected].owner===myFaction()
+      },
+      {
+        text:"Dans le panneau, cliquez sur « Recruter » pour construire des troupes sur ce territoire.",
+        target: ()=> document.querySelector('[data-act="recruit"]'),
+        done: ()=> !!guidedTutorial.signals.recruit
+      },
+      {
+        text:"Repérez une cible d'attaque (un territoire voisin qui n'est pas à vous) et cliquez sur « Attaquer ».",
+        target: ()=> document.querySelector('[data-act="attack"]'),
+        done: ()=> !!guidedTutorial.signals.attack
+      },
+      {
+        text:"Dans le panneau Diplomatie (à droite), cliquez sur « Proposer alliance » pour une des factions.",
+        target: ()=> document.querySelector('[data-act="alliance"]'),
+        done: ()=> !!guidedTutorial.signals.alliance
+      },
+      {
+        text:"Bravo, vous maîtrisez les bases ! Explorez le reste (Arsenal, Menacer, unités spécialisées) par vous-même. Cliquez sur « Terminer » pour continuer votre partie.",
+        target: ()=> null,
+        done: ()=> false
+      }
+    ]
+  };
+
+  function tutorialSignal(name){
+    if(!guidedTutorial.active) return;
+    guidedTutorial.signals[name] = true;
+  }
+
+  function startGuidedTutorial(){
+    document.getElementById('tutorialOverlay').classList.add('hidden');
+    document.getElementById('startOverlay').classList.add('hidden');
+    try{ localStorage.setItem(TUTO_KEY, '1'); }catch(e){}
+
+    state = freshState('fr', 'facile');
+    mapRenderCache.edges = {}; mapRenderCache.shapes = {};
+    guidedTutorial.active = true;
+    guidedTutorial.step = 0;
+    guidedTutorial.signals = {};
+
+    document.getElementById('hud').style.display = 'flex';
+    render();
+    startLoop();
+    updateGuidedTutorial();
+  }
+
+  function endGuidedTutorial(){
+    guidedTutorial.active = false;
+    document.getElementById('tutoSpotlight').classList.remove('show');
+    document.getElementById('tutoPointer').classList.remove('show');
+    document.getElementById('tutoBubble').classList.remove('show');
+  }
+
+  function updateGuidedTutorial(){
+    if(!guidedTutorial.active) return;
+    const step = guidedTutorial.steps[guidedTutorial.step];
+    if(!step) { endGuidedTutorial(); return; }
+
+    if(step.done()){
+      guidedTutorial.step++;
+      guidedTutorial.signals = {};
+      if(guidedTutorial.step >= guidedTutorial.steps.length){ endGuidedTutorial(); return; }
+    }
+    positionGuidedTutorial();
+  }
+
+  function positionGuidedTutorial(){
+    const step = guidedTutorial.steps[guidedTutorial.step];
+    if(!step) return;
+    const spotlight = document.getElementById('tutoSpotlight');
+    const pointer = document.getElementById('tutoPointer');
+    const bubble = document.getElementById('tutoBubble');
+    const stepLabel = document.getElementById('tutoBubbleStep');
+    const bubbleText = document.getElementById('tutoBubbleText');
+    const skipBtn = document.getElementById('btnTutoGuidedSkip');
+
+    stepLabel.textContent = `Étape ${guidedTutorial.step+1}/${guidedTutorial.steps.length}`;
+    bubbleText.textContent = step.text;
+    skipBtn.textContent = (guidedTutorial.step===guidedTutorial.steps.length-1) ? 'Terminer' : 'Passer le tutoriel';
+    bubble.classList.add('show');
+
+    const el = step.target();
+    if(!el){
+      spotlight.classList.remove('show');
+      pointer.classList.remove('show');
+      bubble.style.top = '50%';
+      bubble.style.left = '50%';
+      bubble.style.transform = 'translate(-50%,-50%)';
+      return;
+    }
+    bubble.style.transform = 'none';
+    const r = el.getBoundingClientRect();
+    if(r.width===0 && r.height===0){
+      spotlight.classList.remove('show');
+      pointer.classList.remove('show');
+      return;
+    }
+    const pad = 8;
+    spotlight.style.top = (r.top-pad)+'px';
+    spotlight.style.left = (r.left-pad)+'px';
+    spotlight.style.width = (r.width+pad*2)+'px';
+    spotlight.style.height = (r.height+pad*2)+'px';
+    spotlight.classList.add('show');
+
+    pointer.style.top = (r.top - 30)+'px';
+    pointer.style.left = (r.left + r.width/2 - 16)+'px';
+    pointer.classList.add('show');
+
+    let bubbleTop = r.bottom + 14;
+    let bubbleLeft = Math.min(Math.max(10, r.left), window.innerWidth-296);
+    if(bubbleTop > window.innerHeight-140){ bubbleTop = Math.max(10, r.top-150); }
+    bubble.style.top = bubbleTop+'px';
+    bubble.style.left = bubbleLeft+'px';
+  }
+
+  document.getElementById('btnTutoGuidedSkip').addEventListener('click', endGuidedTutorial);
+  document.getElementById('btnTutoGuided').addEventListener('click', startGuidedTutorial);
+
+  window.addEventListener('resize', ()=>{ if(guidedTutorial.active) positionGuidedTutorial(); });
+  setInterval(()=>{ if(guidedTutorial.active) positionGuidedTutorial(); }, 400);
 
   /* délégation d'événements HUD */
   document.getElementById('hud').addEventListener('click', (e)=>{
@@ -3061,16 +3269,41 @@
     overlay.classList.remove('hidden');
   }
 
+  const TUTO_PAGE_COUNT = 6;
+  let tutoPage = 0;
+
+  function renderTutoPage(){
+    document.querySelectorAll('.tutoPage').forEach(el=>{
+      el.style.display = (parseInt(el.dataset.page,10)===tutoPage) ? 'block' : 'none';
+    });
+    document.getElementById('tutoProgress').textContent = `Page ${tutoPage+1} / ${TUTO_PAGE_COUNT}`;
+    document.getElementById('btnTutoPrev').style.visibility = tutoPage===0 ? 'hidden' : 'visible';
+    document.getElementById('btnTutoNext').textContent = tutoPage===TUTO_PAGE_COUNT-1 ? 'Compris, commencer' : 'Suivant ▶';
+  }
+
   function showTutorial(context){
     tutoContext = context;
+    tutoPage = 0;
+    renderTutoPage();
     document.getElementById('tutorialOverlay').classList.remove('hidden');
   }
 
-  document.getElementById('btnTutoDone').addEventListener('click', ()=>{
+  document.getElementById('btnTutoNext').addEventListener('click', ()=>{
+    if(tutoPage < TUTO_PAGE_COUNT-1){
+      tutoPage++;
+      renderTutoPage();
+      return;
+    }
     document.getElementById('tutorialOverlay').classList.add('hidden');
     if(tutoContext==='first'){
       try{ localStorage.setItem(TUTO_KEY, '1'); }catch(e){}
       showStartOverlay();
+    }
+  });
+  document.getElementById('btnTutoPrev').addEventListener('click', ()=>{
+    if(tutoPage > 0){
+      tutoPage--;
+      renderTutoPage();
     }
   });
   document.getElementById('btnToggleHud').addEventListener('click', openHudMobile);
