@@ -2372,6 +2372,7 @@
     myPseudo:'', mySlot:null, myHome:null, difficulty:'moyen',
     players:[], pollTimer:null, presence:{}
   };
+  let mpPollSeq = 0; // ignore les réponses réseau périmées arrivées après une plus récente
 
   function mpGenerateCode(){
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -2574,6 +2575,7 @@
   }
 
   async function mpToggleReady(){
+    mpPollSeq++;
     const mine = mp.players.find(p=>p.clientId===MP_CLIENT_ID);
     if(mine && !mine.ready && !mine.homeId){
       mpShowRoomError('Choisissez votre nation de départ avant de vous mettre "Prêt".');
@@ -2586,6 +2588,7 @@
   }
 
   async function mpKickPlayer(clientId){
+    mpPollSeq++;
     if(!mp.isHost) return;
     const players = mp.players.filter(p=>p.clientId!==clientId);
     mp.players = players;
@@ -2594,6 +2597,7 @@
   }
 
   async function mpClaimSlot(slotKey){
+    mpPollSeq++;
     // relit l'état du serveur juste avant de choisir, pour éviter que deux joueurs
     // prennent le même camp presque simultanément à partir d'une copie locale périmée
     const { data: fresh } = await sb.from('game_rooms').select('players').eq('id', mp.roomId).single();
@@ -2623,6 +2627,7 @@
   }
 
   async function mpSetHome(homeId){
+    mpPollSeq++;
     const players = mp.players.map(p=> p.clientId===MP_CLIENT_ID ? { ...p, homeId } : p);
     mp.players = players;
     renderMpRoom();
@@ -2674,7 +2679,9 @@
   async function mpRefreshOnce(){
     if(!mp.roomId) return;
     const debugEl = document.getElementById('mpDebug');
+    const mySeq = ++mpPollSeq;
     const { data, error } = await sb.from('game_rooms').select('*').eq('id', mp.roomId).single();
+    if(mySeq !== mpPollSeq) return; // une requête plus récente est déjà partie ou revenue, on ignore celle-ci
     const now = new Date().toLocaleTimeString('fr-FR');
     if(error){
       if(debugEl) debugEl.textContent = `Salon ${mp.roomCode} · erreur lecture (${now}) : ${error.message}`;
