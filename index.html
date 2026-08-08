@@ -1044,8 +1044,11 @@
   }
 
   function labelOf(owner){
-    if(owner==='player') return byId[state.home] ? 'Votre nation' : 'Votre nation';
     if(owner==='neutral') return 'Territoires neutres';
+    if(owner===myFaction()) return 'Votre nation';
+    if(mpGame.active && mpGame.factionNames && mpGame.factionNames[owner]){
+      return mpGame.factionNames[owner]; // pseudo du joueur humain qui contrôle ce camp
+    }
     return FACTIONS[owner] ? FACTIONS[owner].name : owner;
   }
   function colorOf(owner){ return OWNER_COLOR[owner] || '#888'; }
