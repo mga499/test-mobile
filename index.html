@@ -2571,9 +2571,20 @@
   }
 
   async function mpClaimSlot(slotKey){
-    if(slotKey && mp.players.some(p=>p.slot===slotKey && p.clientId!==MP_CLIENT_ID)) return; // déjà pris entre-temps
+    // relit l'état du serveur juste avant de choisir, pour éviter que deux joueurs
+    // prennent le même camp presque simultanément à partir d'une copie locale périmée
+    const { data: fresh } = await sb.from('game_rooms').select('players').eq('id', mp.roomId).single();
+    const serverPlayers = (fresh && fresh.players) || mp.players;
+
+    if(slotKey && serverPlayers.some(p=>p.slot===slotKey && p.clientId!==MP_CLIENT_ID)){
+      mp.players = serverPlayers;
+      renderMpRoom();
+      mpShowStatusError('Trop tard, ce camp vient d\'être pris par quelqu\'un d\'autre — choisissez-en un autre.');
+      return;
+    }
+
     let found = false;
-    let players = mp.players.map(p=>{
+    let players = serverPlayers.map(p=>{
       if(p.clientId===MP_CLIENT_ID){
         found = true;
         return { ...p, slot: slotKey, homeId: slotKey ? p.homeId : null, ready:false };
@@ -2691,6 +2702,14 @@
     if(readyPlayers.length===0){ mpShowStatusError('Personne n\'a encore choisi de camp — choisissez-en un chacun avant de lancer.'); return; }
     const notReady = readyPlayers.filter(p=>!p.ready);
     if(notReady.length>0){ mpShowStatusError(`En attente que ${notReady.map(p=>p.pseudo).join(', ')} se mette en "Prêt".`); return; }
+
+    const slotCounts = {};
+    readyPlayers.forEach(p=>{ slotCounts[p.slot] = (slotCounts[p.slot]||0)+1; });
+    const clash = Object.keys(slotCounts).find(s=>slotCounts[s]>1);
+    if(clash){
+      mpShowStatusError(`Deux joueurs ont choisi le même camp (${clash}) — l'un des deux doit en reprendre un autre.`);
+      return;
+    }
 
     document.getElementById('mpStatus').style.color = 'var(--muted)';
     document.getElementById('mpStatus').textContent = 'Lancement de la partie…';
