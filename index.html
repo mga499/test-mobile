@@ -982,6 +982,7 @@
   /* ============ ÉTAT ============ */
   let state = null;
   let tickTimer = null;
+  let localSelected = null; // sélection de territoire : locale à ce client, jamais synchronisée
 
   // ---- Session multijoueur (indépendante de mp.* qui ne gère que le salon) ----
   const mpGame = {
@@ -1196,7 +1197,7 @@
     }
 
     resolveCombat(fromC, toC, amount, f);
-    state.selected = toState.owner===f ? toId : state.selected;
+    if(actingFaction()===myFaction()) localSelected = toState.owner===f ? toId : localSelected;
     saveGame();
     render();
     mpSyncAfterAction();
@@ -1267,7 +1268,7 @@
     if(state.over) return;
     if(ownedList(f).length===0){ addLog(`${FACTIONS[f].name} a été éliminé, contrat impossible.`); return; }
     if(state.gold.player<CONTRACT_COST){ addLog('Fonds insuffisants pour ce contrat.'); return; }
-    const targetId = (state.selected && state.countries[state.selected].owner==='player') ? state.selected : state.home;
+    const targetId = state.home;
     state.gold.player -= CONTRACT_COST;
     state.countries[targetId].troops += CONTRACT_TROOPS;
     state.relations[f] = Math.min(100, state.relations[f]+8);
@@ -1779,7 +1780,7 @@
       p.setAttribute('fill-rule', 'nonzero');
       p.style.cursor = 'pointer';
       p.addEventListener('click', ()=>{
-        state.selected = c.id;
+        localSelected = c.id;
         render();
         if(window.innerWidth<=820 || window.innerHeight<=520) openHudMobile();
       });
@@ -1838,7 +1839,7 @@
       const cs = state.countries[c.id];
       const shape = document.getElementById(`shape-${c.id}`);
       if(shape){
-        const isSel = state.selected===c.id;
+        const isSel = localSelected===c.id;
         shape.setAttribute('fill', colorOf(cs.owner));
         shape.setAttribute('fill-opacity', isSel ? '0.95' : '0.8');
         shape.setAttribute('stroke', isSel ? 'var(--brass)' : '#0f120d');
@@ -1997,7 +1998,7 @@
 
   function renderSelection(){
     const card = document.getElementById('selCard');
-    const sel = state.selected;
+    const sel = localSelected;
     if(!sel){
       card.innerHTML = `<div class="placeholder">Sélectionnez un territoire sur la carte pour voir son détail, recruter des troupes ou lancer une attaque.</div>`;
       return;
@@ -2119,7 +2120,7 @@
         <input type="number" class="numInput" id="missileAmt" value="1" min="1">
         <button class="miniBtn" data-act="buildMissiles">Construire (${MISSILE_COST} or/pièce)</button>
       </div>`;
-    const sel = state.selected;
+    const sel = localSelected;
     if(sel && state.countries[sel].owner!=='player'){
       const c = byId[sel];
       if(state.missiles>=1){
