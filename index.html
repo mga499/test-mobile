@@ -1564,6 +1564,7 @@
       const raw = localStorage.getItem(SAVE_KEY);
       if(!raw) return false;
       state = JSON.parse(raw);
+      mapRenderCache.edges = {}; mapRenderCache.shapes = {};
       if(!DIFFICULTIES[state.difficulty]) state.difficulty = 'moyen';
       if(!state.startTime) state.startTime = Date.now();
       if(state.finalElapsedMs===undefined) state.finalElapsedMs = null;
@@ -1837,25 +1838,34 @@
     setupPanZoom();
   }
 
+  const mapRenderCache = { edges:{}, shapes:{} };
   function renderMap(){
+    const f = myFaction();
     ADJ_PAIRS.forEach(([a,b])=>{
-      const line = document.getElementById(`edge-${a}-${b}`);
       const oa = state.countries[a].owner, ob = state.countries[b].owner;
-      line.setAttribute('class','edge');
-      if(oa==='player' && ob==='player'){
-        line.classList.add('supply');
+      let cls = 'edge';
+      if(oa===f && ob===f){
+        cls = 'edge supply';
       } else {
-        const allyA = oa==='player' ? null : (FACTIONS[oa]&&state.alliances[oa]?oa:null);
-        const allyB = ob==='player' ? null : (FACTIONS[ob]&&state.alliances[ob]?ob:null);
-        if((oa==='player'&&allyB)||(ob==='player'&&allyA)) line.classList.add('ally');
+        const allyA = oa===f ? null : (FACTIONS[oa]&&state.alliances[oa]?oa:null);
+        const allyB = ob===f ? null : (FACTIONS[ob]&&state.alliances[ob]?ob:null);
+        if((oa===f&&allyB)||(ob===f&&allyA)) cls = 'edge ally';
+      }
+      const key = a+'-'+b;
+      if(mapRenderCache.edges[key]!==cls){
+        mapRenderCache.edges[key] = cls;
+        document.getElementById(`edge-${a}-${b}`).setAttribute('class', cls);
       }
     });
 
     COUNTRIES.forEach(c=>{
       const cs = state.countries[c.id];
+      const isSel = localSelected===c.id;
+      const sig = cs.owner+'|'+isSel;
+      if(mapRenderCache.shapes[c.id]===sig) return; // rien n'a changé pour ce pays, on ne touche pas le DOM
+      mapRenderCache.shapes[c.id] = sig;
       const shape = document.getElementById(`shape-${c.id}`);
       if(shape){
-        const isSel = localSelected===c.id;
         shape.setAttribute('fill', colorOf(cs.owner));
         shape.setAttribute('fill-opacity', isSel ? '0.95' : '0.8');
         shape.setAttribute('stroke', isSel ? 'var(--brass)' : '#0f120d');
@@ -2298,9 +2308,10 @@
   function initLobby3D(){
     const canvas = document.getElementById('lobbyCanvas');
     if(!canvas || typeof THREE === 'undefined'){ return; }
+    const isMobileDevice = window.innerWidth<=820 || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
     try{
-      const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias:!isMobileDevice, alpha:true, powerPreference:'low-power' });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, isMobileDevice ? 1 : 2));
 
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
@@ -2348,10 +2359,10 @@
 
       const overlay = document.getElementById('startOverlay');
       let t = 0;
+      let rafId = null;
       function animate(){
-        requestAnimationFrame(animate);
-        if(overlay.classList.contains('hidden')) return;
-        resize();
+        if(overlay.classList.contains('hidden')){ rafId = null; return; } // arrête complètement la boucle (pas de RAF fantôme)
+        rafId = requestAnimationFrame(animate);
         t += 0.0035;
         globe.rotation.y += 0.0016;
         globe.rotation.x = Math.sin(t*0.4)*0.08;
@@ -2359,6 +2370,11 @@
         stars.rotation.y += 0.0002;
         renderer.render(scene, camera);
       }
+      // relance la boucle uniquement quand l'écran de menu redevient visible
+      const globeObserver = new MutationObserver(()=>{
+        if(!overlay.classList.contains('hidden') && rafId===null) animate();
+      });
+      globeObserver.observe(overlay, { attributes:true, attributeFilter:['class'] });
       animate();
     }catch(e){
       // WebGL indisponible : le fond reste simplement sans globe 3D, le menu fonctionne normalement
@@ -2734,9 +2750,9 @@
     }
   }
 
-  function mpStartPolling(){
+  function mpStartPolling(rateMs){
     if(mp.pollTimer) clearInterval(mp.pollTimer);
-    mp.pollTimer = setInterval(mpRefreshOnce, 2500);
+    mp.pollTimer = setInterval(mpRefreshOnce, rateMs||2500);
   }
 
   async function mpLeaveRoom(){
@@ -2869,6 +2885,7 @@
     document.getElementById('eliminatedOverlay').classList.add('hidden');
 
     state = sharedState;
+    mapRenderCache.edges = {}; mapRenderCache.shapes = {};
     if(!DIFFICULTIES[state.difficulty]) state.difficulty = 'moyen';
     if(!state.startTime) state.startTime = Date.now();
 
@@ -2941,7 +2958,7 @@
 
   // Boucle de synchronisation en jeu : l'hôte traite les actions reçues puis republie l'état ;
   // les autres clients relisent l'état partagé et l'affichent.
-  function mpStartGamePolling(){
+  function mpStartGamePolling(rateMs){
     if(mpGame.syncTimer) clearInterval(mpGame.syncTimer);
     mpGame.syncTimer = setInterval(async ()=>{
       if(!mpGame.active) return;
@@ -2957,7 +2974,7 @@
           }
         }catch(e){ console.error('[Empire Mondial MP] échec lecture état', e); }
       }
-    }, 2000);
+    }, rateMs||2000);
   }
 
   document.getElementById('btnEliminatedWatch').addEventListener('click', ()=>{
@@ -3024,6 +3041,7 @@
     grid.querySelectorAll('button').forEach(b=>{
       b.addEventListener('click', ()=>{
         state = freshState(b.dataset.home, selectedDifficulty);
+        mapRenderCache.edges = {}; mapRenderCache.shapes = {};
         overlay.classList.add('hidden');
         addLog(`Fondation de votre nation à partir de <b>${NAME_MAP[b.dataset.home]}</b> (difficulté : ${DIFFICULTIES[selectedDifficulty].label}).`, true);
         const profile = loadProfile();
@@ -3174,6 +3192,14 @@
         await screen.orientation.lock('landscape');
       }
     }catch(e){ /* verrouillage non supporté sur cet appareil/navigateur */ }
+  });
+
+  // Ralentit le travail en arrière-plan (écran éteint / onglet inactif) pour économiser
+  // batterie et éviter la surchauffe — remis à la vitesse normale dès le retour au premier plan.
+  document.addEventListener('visibilitychange', ()=>{
+    const background = document.hidden;
+    if(mp.pollTimer) mpStartPolling(background ? 12000 : 2500);
+    if(mpGame.syncTimer) mpStartGamePolling(background ? 8000 : 2000);
   });
 
   buildMap();
