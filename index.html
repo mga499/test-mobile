@@ -401,6 +401,18 @@
     </div>
   </div>
 
+  <!-- ÉLIMINATION (multijoueur) -->
+  <div class="overlay hidden" id="eliminatedOverlay">
+    <div class="overlayBox">
+      <h1 style="color:var(--crimson);">Nation éliminée</h1>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:26px;">Votre dernier territoire est tombé. La partie continue pour les autres joueurs.</p>
+      <div class="continueRow">
+        <button class="primaryBtn" id="btnEliminatedWatch" style="border-radius:5px;">Regarder la suite</button>
+        <button id="btnEliminatedQuit" style="background:var(--panel-2);border:1px solid var(--line);color:var(--parchment);border-radius:5px;">Quitter</button>
+      </div>
+    </div>
+  </div>
+
   <!-- LEADERBOARD OVERLAY -->
   <div class="overlay hidden" id="leaderboardOverlay">
     <div class="overlayBox" style="text-align:left;max-width:520px;">
@@ -987,7 +999,8 @@
   // ---- Session multijoueur (indépendante de mp.* qui ne gère que le salon) ----
   const mpGame = {
     active:false, isHost:false, roomId:null, myFaction:'player',
-    humanFactions:[], factionOwners:{}, factionNames:{}, syncTimer:null, applying:false
+    humanFactions:[], factionOwners:{}, factionNames:{}, syncTimer:null, applying:false,
+    eliminated:false, spectating:false
   };
   function myFaction(){ return mpGame.active ? mpGame.myFaction : 'player'; }
   function actingFaction(){ return mpGame.applyingRemoteFaction || myFaction(); }
@@ -2223,6 +2236,15 @@
     renderArsenal();
     renderDiplo();
     renderLog();
+    checkLocalElimination();
+  }
+
+  function checkLocalElimination(){
+    if(!mpGame.active || state.over || mpGame.eliminated || mpGame.spectating) return;
+    if(ownedList(myFaction()).length===0){
+      mpGame.eliminated = true;
+      document.getElementById('eliminatedOverlay').classList.remove('hidden');
+    }
   }
 
   /* délégation d'événements HUD */
@@ -2842,6 +2864,9 @@
     mpGame.factionOwners = sharedState.multiplayer.factionOwners;
     mpGame.factionNames = sharedState.multiplayer.factionNames;
     mpGame.myFaction = Object.keys(mpGame.factionOwners).find(f=>mpGame.factionOwners[f]===MP_CLIENT_ID) || 'player';
+    mpGame.eliminated = false;
+    mpGame.spectating = false;
+    document.getElementById('eliminatedOverlay').classList.add('hidden');
 
     state = sharedState;
     if(!DIFFICULTIES[state.difficulty]) state.difficulty = 'moyen';
@@ -2933,6 +2958,31 @@
         }catch(e){ console.error('[Empire Mondial MP] échec lecture état', e); }
       }
     }, 2000);
+  }
+
+  document.getElementById('btnEliminatedWatch').addEventListener('click', ()=>{
+    mpGame.spectating = true;
+    document.getElementById('eliminatedOverlay').classList.add('hidden');
+  });
+  document.getElementById('btnEliminatedQuit').addEventListener('click', ()=>{
+    if(mpGame.isHost){
+      const ok = window.confirm("Vous êtes l'hôte : quitter mettra la partie en pause pour tous les autres joueurs (aucun tour ne sera plus joué). Continuer ?");
+      if(!ok) return;
+    }
+    document.getElementById('eliminatedOverlay').classList.add('hidden');
+    mpQuitToMenu();
+  });
+
+  function mpQuitToMenu(){
+    stopLoop();
+    if(mpGame.syncTimer){ clearInterval(mpGame.syncTimer); mpGame.syncTimer=null; }
+    mpGame.active = false;
+    mpGame.isHost = false;
+    mpGame.eliminated = false;
+    mpGame.spectating = false;
+    state = null;
+    document.getElementById('hud').style.display = 'none';
+    showStartOverlay();
   }
 
   document.getElementById('btnOpenMultiplayer').addEventListener('click', openMultiplayerOverlay);
