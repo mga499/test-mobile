@@ -301,6 +301,7 @@ body.ide-actif { overflow: hidden; }
 .btn-photo { font-size: 18px; }
 .statut-ia { font-size: 13px; margin: 0; padding: 8px 14px 12px; color: var(--muet); }
 .statut-ia:empty { display: none; }
+.astuce-cat { font-size: 12.5px; color: var(--muet); margin: 0; padding: 4px 14px 6px; line-height: 1.45; }
 
 </style>
 </head>
@@ -2223,6 +2224,14 @@ function analyserSyntaxe(code) {
    PROF DE CODE — fiches de cours, générateur de code, correcteur, ▶ Lancer, défis (tout fait main)
    ============================================================================================ */
 const CLASSIFIEUR_CODE = new Classifieur(Object.fromEntries(Object.entries(D.FICHES).map(([k, f]) => [k, f.exemples])));
+const MOTS_VIDES_CODE = new Set(["comment", "faire", "fais", "python", "code", "coder", "avec", "dans", "pour", "est", "quoi", "quel", "quelle", "une", "des", "les", "mon", "ton", "programme", "programmer", "ecrire", "creer", "utiliser", "veux", "peux", "sais", "explique", "moi", "que", "qui", "sur", "plus", "faut", "fait", "marche"]);
+/** La fiche parle-t-elle vraiment des mots importants de la question ? (le classifieur se trompe parfois avec assurance) */
+function fichePertinente(cle, brut) {
+  const mots = norm(brut).split(" ").filter((m) => m.length >= 4 && !MOTS_VIDES_CODE.has(m));
+  if (!mots.length) return true;
+  const fiche = norm(D.FICHES[cle].texte + " " + D.FICHES[cle].exemples.join(" "));
+  return mots.some((m) => fiche.includes(m.slice(0, 5)));
+}
 const bloc = (code) => "```\n" + code.replace(/\s+$/, "") + "\n```";
 const nomPython = (t, defaut = "ma_fonction") => { const n = sansAccents(t.trim()).replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, ""); return !n || /^\d/.test(n) ? defaut : n; };
 const nomClasse = (t) => (sansAccents(t).match(/[a-zA-Z0-9]+/g) || []).map((m) => m[0].toUpperCase() + m.slice(1)).join("") || "MaClasse";
@@ -2359,15 +2368,15 @@ const GENERATEURS = [
     return `Voici ta **fenêtre Tkinter** « ${titre} » (à lancer sur ton PC) :\n${bloc(l.join("\n"))}`;
   },
 ];
-function repondreCode(brut, t) {
+function repondreCode(brut, t, exigeant = false) {      // exigeant : une IA peut répondre, alors je ne réponds que si je suis sûr
   for (const g of GENERATEURS) { try { const r = g(brut, t); if (r) return r; } catch (e) { /* on passe au suivant */ } }
   const mots = new Set(t.split(" "));
   const inter = (a, b) => [...a].some((x) => b.has(x));
   if (!inter(mots, S.MOTS_CODE) || !(inter(mots, S.MOTS_DEMANDE) || /\?\s*$/.test(brut))) return null;
   if (contient(t, "j aime", "j adore", "je kiffe") && !/\?\s*$/.test(brut)) return null;
   const [cle, score] = CLASSIFIEUR_CODE.predire(brut);
-  if (cle && score >= 0.18) return D.FICHES[cle].texte;
-  if (inter(mots, new Set(["python", "code", "coder", "programmer", "programmation"]))) return D.FICHES.sommaire.texte;
+  if (cle && score >= (exigeant ? 0.45 : 0.18) && (!exigeant || fichePertinente(cle, brut))) return D.FICHES[cle].texte;
+  if (!exigeant && inter(mots, new Set(["python", "code", "coder", "programmer", "programmation"]))) return D.FICHES.sommaire.texte;
   return null;
 }
 
@@ -4327,6 +4336,8 @@ function lirePhoto(fichier) {
 }
 
 /* ---------------------------------------------------------------- comprendre les demandes (méthodes du Chatbot) */
+const VERBES_MODIF_IMAGE = ["ajoute", "rajoute", "mets", "met un", "met une", "enleve", "retire", "supprime", "efface", "change", "transforme", "remplace", "rends la", "rends le",
+  "refais", "fais en", "en style", "style", "version", "colorie", "habille", "modifie", "fais lui", "donne lui", "en dessin anime", "en manga", "en anime", "en peinture"];
 const ImagesChatbot = {
   get etatImage() { return this.mem.image || (this.mem.image = { courante: null, historique: [], sujet: null }); },
   retenirImage(id) { const e = this.etatImage; if (e.courante) e.historique = [...e.historique, e.courante].slice(-15); e.courante = id; },
@@ -4339,7 +4350,7 @@ const ImagesChatbot = {
     const [img, nom] = genererImage(texte, graine);
     if (!img) return null;
     const id = await garderImageWeb(img);
-    this.retenirImage(id); this.etatImage.sujet = texte;
+    this.retenirImage(id); this.etatImage.sujet = texte; this.etatImage.source = "fait_main";
     this.noterStat("sujets", "images"); this.type = "image";
     this.boutons = [["🎲 Une autre", "encore une image"], ["💾 Télécharger", "enregistre l'image"]];
     return `🎨 Voilà ${nom} ! Mon code l'a fait pixel par pixel (fait main) :\n![${nom}](img:${id})\n*Tu peux la retoucher : « plus lumineuse », « noir et blanc », « écris Bonjour dessus »… ou demander « une autre ».*`;
@@ -4353,7 +4364,9 @@ const ImagesChatbot = {
     }
     const reT = /(?:[ée]cris|ajoute|mets|marque)\s+(?:le texte\s+)?[«"']?(.+?)[»"']?\s+(?:sur|dessus|en bas|en haut|au milieu|dans)\b/i, reT2 = /(?:[ée]cris|ajoute le texte|texte)\s*:\s*(.+)$/i;
     const m = reT.exec(brut) || reT2.exec(brut);
-    if (m && (reT.test(t) || reT2.test(t) || /ecris|ajoute|mets|marque/.test(t))) {
+    // avec OpenAI branché, « ajoute un chapeau sur l'image » est une vraie modification, pas un texte à écrire
+    const texteExplicite = /\b(?:[ée]cris|marque|texte)\b/i.test(brut) || /[«"“]/.test(brut) || !IA.fournisseur("images");
+    if (m && texteExplicite && (reT.test(t) || reT2.test(t) || /ecris|ajoute|mets|marque/.test(t))) {
       const texte = m[1].replace(/^[«»"' ]+|[«»"' ]+$/g, ""), pos = /en haut/.test(t) ? "haut" : /milieu/.test(t) ? "milieu" : "bas";
       faites.push([`texte « ${texte} »`, (i) => ecrireTexteImg(i, texte, pos)]);
     }
@@ -4373,9 +4386,34 @@ const ImagesChatbot = {
     const noms = retouches.map((r) => r[0]).join(", ");
     return `✨ C'est fait (${noms}) :\n![${noms}](img:${id})`;
   },
-  async _images(brut, t, tc, mots) {
+  /** OpenAI crée une image (ou modifie l'image « baseId »). */
+  async imageOpenAI(description, baseId = null) {
     const e = this.etatImage;
-    if (contient(t, ...D.VERBES_DESSIN) && !contient(t, "genere un mot de passe", "genere du code", "genere un code", "genere une fonction", "genere une liste", "genere un nombre")) {
+    if (this.flux) this.flux(baseId ? "🎨 OpenAI modifie l'image… *(ça peut prendre jusqu'à une minute)*" : "🎨 OpenAI crée ton image… *(ça peut prendre jusqu'à une minute)*");
+    let base = null;
+    if (baseId) {
+      base = await ImagesStock.prendre(baseId);
+      if (!base) { const img = await chargerImageWeb(baseId); if (img) base = await new Promise((ok) => versCanvas(img).toBlob(ok, "image/jpeg", 0.92)); }
+      if (!base) return "Je n'ai plus cette image en mémoire 😕 Renvoie-la avec le 📷.";
+    }
+    const blob = await OPENAI.image(description, base);
+    this.type = "image"; this.noterStat("sujets", "images");
+    if (!blob) return `⚠️ **OpenAI n'a pas pu ${baseId ? "modifier" : "créer"} l'image** : ${IA.erreur}` + (baseId ? "" : "\n*(Ajoute « fait main » à ta demande pour que je la dessine moi-même.)*");
+    let img;
+    try { img = await lirePhoto(blob); } catch (err) { return "OpenAI a renvoyé une image que je n'arrive pas à lire 😕"; }
+    const id = await garderImageWeb(img);
+    this.retenirImage(id);
+    if (!baseId) e.sujet = description;
+    e.source = "openai";
+    this.boutons = baseId ? [["↩️ Annuler", "annule la retouche"], ["🎲 Refaire", "refais l'image"], ["💾 Télécharger", "enregistre l'image"]] : [["🎲 Une autre", "encore une image"], ["💾 Télécharger", "enregistre l'image"]];
+    return `${baseId ? "✨ Voilà l'image modifiée" : "🖼️ Voilà ton image"} *(faite par OpenAI)* :\n![${baseId ? "image modifiée" : "image OpenAI"}](img:${id})\n*Tu peux demander des changements (« ajoute un chapeau », « style manga »…), une retouche faite main (« noir et blanc »), ou « une autre ».*`;
+  },
+  async _images(brut, t, tc, mots) {
+    const e = this.etatImage, four = IA.fournisseur("images") && !contient(t, "fait main");
+    const surImage = e.courante && contient(t, "sur la photo", "sur l image", "a la photo", "a l image", "sur ma photo", "de la photo", "de l image", "cette photo", "cette image", "sur le dessin", "sur l image");
+    const retouchePhoto = e.courante && contient(t, "la photo", "l image", "ma photo", "cette photo", "cette image", "au crayon") && this.retouchesDemandees(t, brut).length;
+    if (!retouchePhoto && contient(t, ...D.VERBES_DESSIN) && !contient(t, "genere un mot de passe", "genere du code", "genere un code", "genere une fonction", "genere une liste", "genere un nombre")) {
+      if (four && !this.retouchesDemandees(t, brut).length) return surImage ? this.imageOpenAI(brut, e.courante) : this.imageOpenAI(brut);
       const r = await this.genererImageBot(brut);
       if (r) return r;
       if (contient(t, "dessine", "image", "dessin", "peins", "photo")) { this.type = "image"; return `Je ne sais pas encore dessiner ça 😅 Mes dessins sont faits uniquement avec du code, pixel par pixel. Je sais dessiner : ${D.SUJETS_CONNUS}.\n💡 Envoie-moi aussi une photo avec le 📎 : je peux la retoucher !`; }
@@ -4383,7 +4421,8 @@ const ImagesChatbot = {
     if (!e.courante) return null;
     const parle = this.parleDImage(t);
     if (e.sujet && parle && (["encore", "une autre", "encore une", "une autre image", "encore une image", "refais", "une autre version", "autre"].includes(t) || contient(t, "encore une image", "une autre image", "un autre dessin")))
-      return this.genererImageBot(e.sujet);
+      return four && e.source === "openai" ? this.imageOpenAI(e.sujet) : this.genererImageBot(e.sujet);
+    if (four && parle && /^(?:refais|refaire|recommence)\b/.test(t) && mots.length <= 4) return e.source === "openai" && e.sujet && !contient(t, "photo") ? this.imageOpenAI(e.sujet) : this.imageOpenAI("Refais cette image, en mieux, en gardant le même sujet.", e.courante);
     if (!parle) return null;
     if (contient(t, "annule la retouche", "annule", "reviens en arriere", "comme avant", "image d avant", "photo d avant") && mots.length <= 6) {
       if (!e.historique.length) return "Il n'y a rien à annuler 🤷";
@@ -4396,6 +4435,7 @@ const ImagesChatbot = {
     }
     const retouches = this.retouchesDemandees(t, brut);
     if (retouches.length) { const img = await chargerImageWeb(e.courante); if (!img) return "Je n'ai plus cette image en mémoire 😕 Renvoie-la avec le 📎."; return this.appliquerRetouches(img, retouches); }
+    if (four && contient(t, ...VERBES_MODIF_IMAGE)) return this.imageOpenAI(brut, e.courante);       // une vraie modification : OpenAI
     return null;
   },
   async photoJointe(img, nom, message = "") {
@@ -4403,6 +4443,10 @@ const ImagesChatbot = {
     this.noterStat("sujets", "images");
     const t = norm(message), retouches = t ? this.retouchesDemandees(t, message) : [];
     if (retouches.length) { const id0 = await garderImageWeb(img); this.retenirImage(id0); return this.appliquerRetouches(img, retouches); }
+    if (t && IA.fournisseur("images") && !contient(t, "fait main")) {          // une demande que je ne sais pas faire main : OpenAI modifie la photo
+      const id0 = await garderImageWeb(img); this.retenirImage(id0);
+      return `![ta photo](img:${id0})\n` + await this.imageOpenAI(message, id0);
+    }
     const id = await garderImageWeb(img);
     this.retenirImage(id); this.type = "image";
     this.boutons = [["⚫ Noir et blanc", "mets la photo en noir et blanc"], ["🟤 Vintage", "mets la photo en sépia"], ["☀️ Plus lumineuse", "rends la photo plus lumineuse"], ["✏️ Crayon", "fais un dessin au crayon de la photo"]];
@@ -4421,24 +4465,57 @@ const IA = {
   config: (() => { try { return JSON.parse(localStorage.getItem(CLE_CONFIG_IA) || "null") || {}; } catch (e) { return {}; } })(),
   erreur: "",
   sauver() { try { localStorage.setItem(CLE_CONFIG_IA, JSON.stringify(this.config)); } catch (e) { /* stockage indisponible */ } },
-  get active() { return !!this.config.cle && this.config.active !== false; },
+  get claudeOk() { return !!this.config.cle && this.config.active !== false; },
+  get openaiOk() { return !!this.config.cle_openai && this.config.active !== false; },
+  get active() { return this.claudeOk || this.openaiOk; },          // au moins une IA pour le texte
+  dernierNom: "Claude",
+  /** Qui s'occupe de cette catégorie ? "claude", "openai" ou null (= fait main). Catégories : images, resume, code, discussion. */
+  fournisseur(cat) {
+    const choix = ((this.config.routage || {})[cat]) || "auto";
+    if (choix === "fait_main") return null;
+    if (choix === "claude") return this.claudeOk && cat !== "images" ? "claude" : null;
+    if (choix === "openai") return this.openaiOk ? "openai" : null;
+    if (cat === "images") return this.openaiOk ? "openai" : null;
+    return this.claudeOk ? "claude" : this.openaiOk ? "openai" : null;
+  },
+  nom: (f) => (f === "openai" ? "OpenAI" : "Claude"),
   nettoyerCle: (c) => (c || "").replace(/\s+/g, "").replace(/^["'`«»]+|["'`«»]+$/g, ""),
-  /** Appel à l'API Anthropic écrit à la main avec fetch. Renvoie le texte, ou null (et IA.erreur explique pourquoi). */
-  async appeler(messages, systeme = "", maxTokens = 900, cle = null, modele = null) {
+  /** Vérifie la clé ; renvoie la clé propre ou null (et IA.erreur explique pourquoi). */
+  verifierCle(cle) {
     cle = this.nettoyerCle(cle || this.config.cle);
-    modele = (modele || this.config.modele || MODELE_IA).trim().replace(/^["'`]+|["'`]+$/g, "");
     if (!cle) { this.erreur = "Il n'y a pas de clé API."; return null; }
     if (cle.startsWith("apikey_")) { this.erreur = "« apikey_… » c'est seulement le NUMÉRO de la clé, pas la clé. Crée une nouvelle clé sur console.anthropic.com → API Keys et copie tout de suite le texte qui commence par « sk-ant- »."; return null; }
     if (!cle.startsWith("sk-ant-")) { this.erreur = "Ce n'est pas une clé API Anthropic : elle doit commencer par « sk-ant- »."; return null; }
-    let r;
+    return cle;
+  },
+  /** Appel simple (bouton Tester) : renvoie le texte, ou null. */
+  async appeler(messages, systeme = "", maxTokens = 900, cle = null, modele = null) {
+    const r = await this.appelerComplet(messages, systeme, { maxTokens, cle, modele });
+    if (!r) return null;
+    const texte = r.blocs.filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+    return texte || null;
+  },
+  /** Appel complet écrit à la main avec fetch : en direct (flux(morceau) reçoit le texte au fur et à mesure)
+      et avec des outils (Claude peut demander une action au chatbot). Renvoie {blocs, stop} ou null. */
+  async appelerComplet(messages, systeme = "", { maxTokens = 900, cle = null, modele = null, flux = null, outils = null } = {}) {
+    cle = this.verifierCle(cle);
+    if (!cle) return null;
+    modele = (modele || this.config.modele || MODELE_IA).trim().replace(/^["'`]+|["'`]+$/g, "");
+    const corps = { model: modele, max_tokens: maxTokens, system: systeme, messages };
+    if (outils && outils.length) corps.tools = outils;
+    const direct = !!flux && typeof TextDecoder !== "undefined";
+    if (direct) corps.stream = true;
     const arret = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const minuteur = arret ? setTimeout(() => arret.abort(), 45000) : null;
+    let minuteur = null;
+    const relancer = () => { if (!arret) return; if (minuteur) clearTimeout(minuteur); minuteur = setTimeout(() => arret.abort(), 45000); };
+    relancer();
+    let r;
     try {
       r = await fetch("https://api.anthropic.com/v1/messages", {
         signal: arret ? arret.signal : undefined,
         method: "POST",
         headers: { "x-api-key": cle, "anthropic-version": "2023-06-01", "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true" },
-        body: JSON.stringify({ model: modele, max_tokens: maxTokens, system: systeme, messages }),
+        body: JSON.stringify(corps),
       });
     } catch (e) {
       if (minuteur) clearTimeout(minuteur);
@@ -4446,13 +4523,59 @@ const IA = {
       this.erreur = "Impossible de joindre Claude. Vérifie ta connexion internet. Si tu utilises la page en ligne (sur claude.ai), elle n'a pas le droit de contacter d'autres sites : ouvre plutôt le fichier chatbot-telephone.html sur ton téléphone.";
       return null;
     }
-    if (minuteur) clearTimeout(minuteur);
-    let donnees = {};
-    try { donnees = await r.json(); } catch (e) { /* réponse vide */ }
-    if (!r.ok) { const err = donnees.error || {}; this.erreur = expliquerErreurApi(r.status, err.type || "", err.message || "", modele); return null; }
-    this.erreur = "";
-    const texte = (donnees.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
-    return texte || null;
+    if (!r.ok) {
+      if (minuteur) clearTimeout(minuteur);
+      let donnees = {};
+      try { donnees = await r.json(); } catch (e) { /* réponse vide */ }
+      const err = donnees.error || {}; this.erreur = expliquerErreurApi(r.status, err.type || "", err.message || "", modele); return null;
+    }
+    try {
+      let resultat;
+      if (direct && r.body && r.body.getReader && !/json/.test(r.headers.get("content-type") || "")) resultat = await this.lireFlux(r.body.getReader(), flux, relancer);
+      else {
+        const donnees = await r.json();
+        resultat = { blocs: donnees.content || [], stop: donnees.stop_reason };
+        if (flux) for (const b of resultat.blocs) if (b.type === "text" && b.text) flux(b.text);
+      }
+      if (minuteur) clearTimeout(minuteur);
+      this.erreur = "";
+      return resultat;
+    } catch (e) {
+      if (minuteur) clearTimeout(minuteur);
+      this.erreur = e && e.name === "AbortError" ? "Claude s'est arrêté au milieu de sa réponse (trop long). Réessaie." : `La réponse de Claude a été coupée : ${e.message || e}`;
+      return null;
+    }
+  },
+  /** Lecture du flux « server-sent events » morceau par morceau. */
+  async lireFlux(lecteur, flux, relancer) {
+    const deco = new TextDecoder();
+    const blocs = [], json = {};
+    let reste = "", stop = null;
+    const traiter = (ligne) => {
+      if (!ligne.startsWith("data:")) return;
+      let ev;
+      try { ev = JSON.parse(ligne.slice(5).trim()); } catch (e) { return; }
+      if (ev.type === "content_block_start") { blocs[ev.index] = Object.assign({}, ev.content_block); if (blocs[ev.index].type === "tool_use") json[ev.index] = ""; }
+      else if (ev.type === "content_block_delta") {
+        const b = blocs[ev.index], d = ev.delta || {};
+        if (d.type === "text_delta" && b) { b.text = (b.text || "") + d.text; flux(d.text); }
+        else if (d.type === "input_json_delta") json[ev.index] = (json[ev.index] || "") + (d.partial_json || "");
+      } else if (ev.type === "content_block_stop" && ev.index in json) {
+        try { blocs[ev.index].input = json[ev.index] ? JSON.parse(json[ev.index]) : {}; } catch (e) { blocs[ev.index].input = {}; }
+      } else if (ev.type === "message_delta" && ev.delta && ev.delta.stop_reason) stop = ev.delta.stop_reason;
+      else if (ev.type === "error") throw new Error((ev.error && ev.error.message) || "erreur");
+    };
+    for (;;) {
+      const { value, done } = await lecteur.read();
+      if (done) break;
+      relancer();
+      reste += deco.decode(value, { stream: true });
+      const lignes = reste.split("\n");
+      reste = lignes.pop();
+      for (const l of lignes) traiter(l.trim());
+    }
+    if (reste.trim()) traiter(reste.trim());
+    return { blocs: blocs.filter(Boolean), stop };
   },
 };
 function expliquerErreurApi(code, genre, message, modele) {
@@ -4465,16 +4588,237 @@ function expliquerErreurApi(code, genre, message, modele) {
   if ([500, 502, 503, 529].includes(code) || ["overloaded_error", "api_error"].includes(genre)) return "Les serveurs d'Anthropic sont surchargés en ce moment. Réessaie dans quelques minutes.";
   return `Erreur ${code} : ${message || genre || "inconnue"}`;
 }
+/* ---------------- OpenAI (optionnel) : texte (avec outils, en direct) et images (créer, refaire, modifier) */
+const OPENAI = {
+  verifierCle(cle) {
+    cle = IA.nettoyerCle(cle || IA.config.cle_openai);
+    if (!cle) { IA.erreur = "Il n'y a pas de clé OpenAI."; return null; }
+    if (cle.startsWith("sk-ant-")) { IA.erreur = "Ça, c'est une clé Anthropic (Claude) : mets-la dans la case « Clé Claude ». La clé OpenAI se crée sur platform.openai.com → API keys."; return null; }
+    if (!cle.startsWith("sk-")) { IA.erreur = "Ce n'est pas une clé API OpenAI : elle doit commencer par « sk- » (souvent « sk-proj- »)."; return null; }
+    return cle;
+  },
+  /** Requête à l'API OpenAI. Renvoie la réponse fetch (ok) ou null (IA.erreur explique). */
+  async requete(chemin, { corps = null, form = null, methode = "POST", cle = null, delai = 60000 } = {}) {
+    cle = this.verifierCle(cle);
+    if (!cle) return null;
+    const arret = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const minuteur = arret ? setTimeout(() => arret.abort(), delai) : null;
+    let r;
+    try {
+      const entetes = { Authorization: "Bearer " + cle };
+      if (corps) entetes["Content-Type"] = "application/json";
+      r = await fetch("https://api.openai.com/v1/" + chemin, { method: methode, headers: entetes, body: corps ? JSON.stringify(corps) : form || undefined, signal: arret ? arret.signal : undefined });
+    } catch (e) {
+      if (minuteur) clearTimeout(minuteur);
+      IA.erreur = e && e.name === "AbortError" ? "OpenAI met trop de temps à répondre. Réessaie dans un moment." : "Impossible de joindre OpenAI. Vérifie ta connexion internet (la page en ligne sur claude.ai n'a pas le droit de contacter d'autres sites : utilise le fichier chatbot-telephone.html).";
+      return null;
+    }
+    if (minuteur && !(corps && corps.stream)) clearTimeout(minuteur);
+    if (!r.ok) {
+      if (minuteur) clearTimeout(minuteur);
+      let d = {};
+      try { d = await r.json(); } catch (e) { /* vide */ }
+      const err = d.error || {};
+      IA.erreur = expliquerErreurOpenAI(r.status, err.code || err.type || "", err.message || "");
+      if (r.status === 404 || /model/.test(err.code || "")) { delete IA.config.auto_openai; IA.sauver(); }
+      return null;
+    }
+    r._minuteur = minuteur;
+    return r;
+  },
+  /** Les modèles changent souvent : je regarde la liste de TON compte et je choisis (texte rapide et pas cher, et le meilleur modèle d'images). */
+  async modeles() {
+    const c = IA.config, auto = c.auto_openai;
+    if (auto && Date.now() - (auto.quand || 0) < 7 * 864e5 && auto.chat) return { chat: c.modele_openai || auto.chat, image: c.modele_image_openai || auto.image };
+    let ids = [];
+    const r = await this.requete("models", { methode: "GET", delai: 20000 });
+    if (r) { try { ids = ((await r.json()).data || []).map((m) => m.id); } catch (e) { ids = []; } }
+    const choisis = choisirModelesOpenAI(ids);
+    if (ids.length) { c.auto_openai = Object.assign({ quand: Date.now() }, choisis); IA.sauver(); }
+    return { chat: c.modele_openai || choisis.chat, image: c.modele_image_openai || choisis.image };
+  },
+  /** Même entrée/sortie que IA.appelerComplet (format Claude), converti pour OpenAI. */
+  async appelerComplet(messages, systeme = "", { maxTokens = 900, flux = null, outils = null, cle = null, modele = null } = {}) {
+    const m = modele || (await this.modeles()).chat;
+    const corps = { model: m, messages: versOpenAI(messages, systeme), max_completion_tokens: Math.max(maxTokens * 3, 2500) };
+    if (outils && outils.length) corps.tools = outils.map((o) => ({ type: "function", function: { name: o.name, description: o.description, parameters: o.input_schema } }));
+    const direct = !!flux && typeof TextDecoder !== "undefined";
+    if (direct) corps.stream = true;
+    const r = await this.requete("chat/completions", { corps, cle, delai: 60000 });
+    if (!r) return null;
+    try {
+      let texte = "", fin = null;
+      const appels = [];
+      const ajouter = (delta) => {
+        if (delta.content) { texte += delta.content; if (flux) flux(delta.content); }
+        for (const tc of delta.tool_calls || []) {
+          const a = (appels[tc.index || 0] = appels[tc.index || 0] || { id: "", name: "", args: "" });
+          if (tc.id) a.id = tc.id;
+          if (tc.function && tc.function.name) a.name += tc.function.name;
+          if (tc.function && tc.function.arguments) a.args += tc.function.arguments;
+        }
+      };
+      if (direct && r.body && r.body.getReader && !/json/.test(r.headers.get("content-type") || "")) {
+        const lecteur = r.body.getReader(), deco = new TextDecoder();
+        let reste = "";
+        const ligne = (l) => {
+          if (!l.startsWith("data:")) return;
+          const d = l.slice(5).trim();
+          if (d === "[DONE]") return;
+          let ev; try { ev = JSON.parse(d); } catch (e) { return; }
+          if (ev.error) throw new Error(ev.error.message || "erreur");
+          const ch = (ev.choices || [])[0];
+          if (!ch) return;
+          if (ch.delta) ajouter(ch.delta);
+          if (ch.finish_reason) fin = ch.finish_reason;
+        };
+        for (;;) {
+          const { value, done } = await lecteur.read();
+          if (done) break;
+          reste += deco.decode(value, { stream: true });
+          const lignes = reste.split("\n"); reste = lignes.pop();
+          for (const l of lignes) ligne(l.trim());
+        }
+        if (reste.trim()) ligne(reste.trim());
+      } else {
+        const d = await r.json(), ch = (d.choices || [])[0] || {};
+        const msg = ch.message || {};
+        ajouter({ content: msg.content || "", tool_calls: (msg.tool_calls || []).map((x, i) => ({ index: i, id: x.id, function: x.function })) });
+        fin = ch.finish_reason;
+      }
+      if (r._minuteur) clearTimeout(r._minuteur);
+      const blocs = [];
+      if (texte) blocs.push({ type: "text", text: texte });
+      for (const a of appels.filter(Boolean)) {
+        let input = {};
+        try { input = a.args ? JSON.parse(a.args) : {}; } catch (e) { input = {}; }
+        blocs.push({ type: "tool_use", id: a.id || "appel" + blocs.length, name: a.name, input });
+      }
+      IA.erreur = "";
+      return { blocs, stop: fin === "tool_calls" || appels.length ? "tool_use" : "end_turn" };
+    } catch (e) {
+      if (r._minuteur) clearTimeout(r._minuteur);
+      IA.erreur = e && e.name === "AbortError" ? "OpenAI s'est arrêté au milieu de sa réponse (trop long). Réessaie." : `La réponse d'OpenAI a été coupée : ${e.message || e}`;
+      return null;
+    }
+  },
+  /** Crée une image (ou modifie « base », un Blob). Renvoie un Blob, ou null (IA.erreur explique). */
+  async image(description, base = null) {
+    const m = (await this.modeles()).image;
+    if (!m) { IA.erreur = IA.erreur || "Ton compte OpenAI n'a aucun modèle d'images (gpt-image)."; return null; }
+    const dalle = /^dall-e/.test(m);
+    let r;
+    if (base) {
+      if (dalle) { IA.erreur = `Le modèle ${m} ne sait pas modifier une image. Il faut un modèle « gpt-image ».`; return null; }
+      const envoyer = (avecQualite) => {
+        const f = new FormData();
+        f.append("model", m); f.append("prompt", description); f.append("image", base, base.type === "image/png" ? "image.png" : "image.jpg");
+        if (avecQualite) f.append("quality", "medium");
+        return this.requete("images/edits", { form: f, delai: 180000 });
+      };
+      r = await envoyer(true);
+      if (!r && /param|quality/i.test(IA.erreur)) r = await envoyer(false);
+    } else {
+      const corps = dalle ? { model: m, prompt: description, n: 1, size: "1024x1024", response_format: "b64_json" } : { model: m, prompt: description, n: 1, size: "1024x1024", quality: "medium" };
+      r = await this.requete("images/generations", { corps, delai: 180000 });
+      if (!r && /param|quality|size/i.test(IA.erreur)) r = await this.requete("images/generations", { corps: { model: m, prompt: description }, delai: 180000 });
+    }
+    if (!r) return null;
+    let d;
+    try { d = await r.json(); } catch (e) { IA.erreur = "Réponse d'OpenAI illisible."; return null; }
+    const x = (d.data || [])[0] || {};
+    if (x.b64_json) {
+      const bin = atob(x.b64_json), oct = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) oct[i] = bin.charCodeAt(i);
+      return new Blob([oct], { type: "image/" + (d.output_format || "png") });
+    }
+    if (x.url) { try { const rr = await fetch(x.url); if (rr.ok) return await rr.blob(); } catch (e) { /* bloqué */ } IA.erreur = "OpenAI a fait l'image mais je n'arrive pas à la télécharger."; return null; }
+    IA.erreur = "OpenAI n'a renvoyé aucune image."; return null;
+  },
+};
+function choisirModelesOpenAI(ids) {
+  const set = new Set(ids);
+  const exclus = /realtime|audio|tts|transcri|image|search|instruct|embed|codex|-pro|deep-research|oss|cyber|live|whisper|translate|moderation|dall-e|computer|rosalind/;
+  const texte = ids.filter((i) => /^(gpt-|chatgpt)/.test(i) && !exclus.test(i)).sort().reverse();
+  const chat = ["gpt-6-luna", "gpt-5.6-luna", "gpt-5.4-mini", "gpt-5-mini", "gpt-4.1-mini", "gpt-4o-mini"].find((x) => set.has(x))
+    || texte.find((i) => /mini|luna/.test(i) && !/\d{4}-\d\d-\d\d/.test(i)) || texte.find((i) => !/\d{4}-\d\d-\d\d/.test(i)) || texte[0] || "gpt-4o-mini";
+  const imgs = ids.filter((i) => /^gpt-image/.test(i) && !/\d{4}-\d\d-\d\d/.test(i)).sort().reverse();
+  const image = ["gpt-image-2", "gpt-image-1.5", "gpt-image-1"].find((x) => set.has(x)) || imgs[0] || (set.has("dall-e-3") ? "dall-e-3" : ids.length ? "" : "gpt-image-1");
+  return { chat, image };
+}
+/** Conversation au format Claude → format OpenAI (chat/completions). */
+function versOpenAI(messages, systeme) {
+  const out = systeme ? [{ role: "system", content: systeme }] : [];
+  for (const m of messages) {
+    if (typeof m.content === "string") { out.push({ role: m.role, content: m.content }); continue; }
+    if (m.role === "assistant") {
+      const texte = m.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+      const appels = m.content.filter((b) => b.type === "tool_use").map((b) => ({ id: b.id, type: "function", function: { name: b.name, arguments: JSON.stringify(b.input || {}) } }));
+      out.push(Object.assign({ role: "assistant", content: texte || null }, appels.length ? { tool_calls: appels } : {}));
+      continue;
+    }
+    const parts = [];
+    for (const b of m.content) {
+      if (b.type === "tool_result") out.push({ role: "tool", tool_call_id: b.tool_use_id, content: String(b.content) });
+      else if (b.type === "text") parts.push({ type: "text", text: b.text });
+      else if (b.type === "image") parts.push({ type: "image_url", image_url: { url: `data:${b.source.media_type};base64,${b.source.data}` } });
+    }
+    if (parts.length) out.push({ role: "user", content: parts });
+  }
+  return out;
+}
+function expliquerErreurOpenAI(code, genre, message) {
+  const m = (message || "").toLowerCase();
+  if (code === 401) return "Clé OpenAI refusée : elle est fausse, incomplète ou supprimée. Recopie-la EN ENTIER depuis platform.openai.com → API keys.";
+  if (genre === "insufficient_quota" || /quota|billing|credit/.test(m)) return "Plus de crédit sur ton compte OpenAI. Va sur platform.openai.com → Billing et ajoute un peu d'argent (l'abonnement ChatGPT Plus ne compte pas pour l'API).";
+  if (/verif/.test(m)) return "Pour créer des images, OpenAI demande de vérifier ton organisation : platform.openai.com → Settings → Organization → General → « Verify Organization ». Ensuite ça marche (parfois après 15 minutes).";
+  if (genre === "moderation_blocked" || /safety|moderation|content policy|content_policy/.test(m)) return "OpenAI a refusé cette demande (règles de sécurité). Essaie une autre description.";
+  if (code === 404 || genre === "model_not_found") return `Ce modèle n'existe pas sur ton compte OpenAI. Vide la case « Modèle » dans les réglages (je choisirai tout seul). (${message})`;
+  if (code === 429) return "Trop de demandes d'un coup chez OpenAI. Attends une minute puis réessaie.";
+  if (code >= 500) return "Les serveurs d'OpenAI ont un souci en ce moment. Réessaie dans quelques minutes.";
+  if (code === 400) return `OpenAI a refusé la demande : ${message || genre}`;
+  return `Erreur OpenAI ${code} : ${message || genre || "inconnue"}`;
+}
+/** Dans quelle catégorie tombe ce message ? (pour choisir qui répond) */
+function categorieTexte(brut, codeur = false) {
+  const t = norm(brut || "");
+  if (contient(t, "resume", "resumer", "reduis ce texte", "reduis le texte", "raccourcis", "en bref", "synthese", "fais plus court", "en quelques mots", "condense", "tldr", "l essentiel de"))
+    return "resume";
+  if (codeur || extraireCode(brut || "") || contient(t, "python", "code", "coder", "programm", "fonction", "script", "javascript", "html", "css", "variable", "boucle", "algorithme", "bug", "compil", "syntaxe"))
+    return "code";
+  return "discussion";
+}
+
+const CONSIGNES_CATEGORIE = {
+  resume: "Ici on te demande de RÉDUIRE un texte : fais un résumé clair et fidèle, bien plus court que l'original (les points clés en liste si c'est utile), sans rien inventer.\n",
+  code: "Ici c'est une question de PROGRAMMATION : réponds précisément, avec du code complet et commenté en français dans des blocs ```python``` (ou le bon langage), et explique simplement.\n",
+};
+const NOMS_CATEGORIES = { images: "🖼️ Images", resume: "📝 Réduction de texte", code: "🐍 Code", discussion: "💬 Discussion" };
+/** Qui fait quoi, en une petite liste (pour « statut ia »). */
+function texteRoutageIA() {
+  return Object.entries(NOMS_CATEGORIES).map(([c, n]) => `- ${n} : **${IA.fournisseur(c) ? IA.nom(IA.fournisseur(c)) : "fait main"}**`).join("\n");
+}
 /* ---------------- méthodes ajoutées au Chatbot */
 const IAChatbot = {
   /** Demande à Claude, avec le contexte : ce que je sais sur toi + la discussion en cours. image = {type, data} (base64). */
-  async demanderIA(message, image = null) {
-    if (!IA.active) return null;
+  async demanderIA(message, image = null, { flux = null, categorie = null } = {}) {
+    categorie = categorie || categorieTexte(message, this.mem.personnalite === "codeur");
+    const fournisseur = IA.fournisseur(categorie);
+    if (!fournisseur) return null;
+    IA.dernierNom = IA.nom(fournisseur);
+    const appel = fournisseur === "openai" ? (m, s, o) => OPENAI.appelerComplet(m, s, o) : (m, s, o) => IA.appelerComplet(m, s, o);
     const autres = this.liste().filter(([i, d]) => i !== this.mem.active && d.messages.length).slice(0, 8).map(([, d]) => d.titre + (d.resume ? ` (${d.resume})` : ""));
+    const quand = new Date().toLocaleString("fr-CH", { weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
     const systeme = `Tu es le chatbot personnel de ${this.prenom || "l'utilisateur"}, une application écrite à la main (version téléphone). `
       + "Réponds en français, de façon courte et naturelle (2 à 4 phrases, plus seulement si on te demande du code ou une explication). "
       + "Tu peux utiliser **gras**, *italique*, `code`, des listes avec « - » et des blocs ```code```. "
-      + `Personnalité actuelle : ${this.mem.personnalite || "normal"}.\nCe que tu sais sur l'utilisateur (valable dans toutes vos discussions) :\n${this.resume()}`
+      + `Nous sommes le ${quand}. `
+      + `Personnalité actuelle : ${this.mem.personnalite || "normal"}.\n`
+      + (CONSIGNES_CATEGORIE[categorie] || "")
+      + "Tu as un outil « chatbot » qui fait faire une VRAIE action au chatbot fait main (rappel, minuteur, agenda, note, dessin, retouche de la dernière photo, mini-jeu, histoire, défi de code, météo, ouvrir un site…). "
+      + "Utilise-le dès que l'utilisateur demande une de ces actions, même dite autrement ou avec des fautes. Ne prétends jamais avoir fait une action sans l'outil. "
+      + "Le résultat de l'outil est affiché tel quel à l'utilisateur (images comprises) : ne le recopie pas, ajoute au plus une courte phrase.\n"
+      + `Ce que tu sais sur l'utilisateur (valable dans toutes vos discussions) :\n${this.resume()}`
       + (autres.length ? "\nVos autres discussions : " + autres.join(" ; ") : "");
     const messages = [];
     for (const h of this.messages().slice(-14)) {
@@ -4490,11 +4834,62 @@ const IAChatbot = {
       if (Array.isArray(contenu)) contenu[1].text = prec + "\n" + contenu[1].text; else contenu = prec + "\n" + contenu;
     }
     messages.push({ role: "user", content: contenu });
-    const r = await IA.appeler(messages, systeme, 900);
-    if (r) { this.noterStat("sujets", "ia"); this.type = "ia"; }
-    return r;
+    // Claude répond ; s'il demande une action, le chatbot fait main l'exécute et Claude continue (4 tours au maximum)
+    const morceaux = [], dire = (s) => { morceaux.push(s); if (flux) flux(s); };
+    for (let tour = 0; tour < 4; tour++) {
+      const avant = morceaux.join("");
+      const r = await appel(messages, systeme, { maxTokens: categorie === "discussion" ? 900 : 1600, flux: flux ? (s) => dire(s) : null, outils: tour < 3 ? OUTILS_IA : null });
+      if (!r) {
+        if (!morceaux.length) return null;
+        dire(`\n\n⚠️ *Claude s'est arrêté en route : ${IA.erreur}*`); break;
+      }
+      if (!flux) for (const b of r.blocs) if (b.type === "text" && b.text) dire(b.text);
+      const actions = r.blocs.filter((b) => b.type === "tool_use");
+      if (r.stop !== "tool_use" || !actions.length) break;
+      messages.push({ role: "assistant", content: r.blocs.filter((b) => b.type === "tool_use" || (b.text || "").trim()).map((b) => b.type === "text" ? { type: "text", text: b.text } : { type: "tool_use", id: b.id, name: b.name, input: b.input || {} }) });
+      const resultats = [];
+      for (const a of actions) {
+        const res = await this.executerOutil(a.name, a.input || {});
+        if (res.affiche) dire((morceaux.join("") !== avant || morceaux.length ? "\n\n" : "") + res.affiche + "\n\n");
+        resultats.push({ type: "tool_result", tool_use_id: a.id, content: res.pourClaude, is_error: !!res.erreur });
+      }
+      messages.push({ role: "user", content: resultats });
+    }
+    const texte = morceaux.join("").replace(/\n{3,}/g, "\n\n").trim();
+    if (texte) { this.noterStat("sujets", "ia"); this.type = "ia"; }
+    return texte || null;
+  },
+  /** Une action demandée par Claude : on passe la commande au cerveau fait main (sans Claude, pour ne pas tourner en rond). */
+  async executerOutil(nom, entree) {
+    const commande = String((entree && entree.commande) || "").trim();
+    if (nom !== "chatbot" || !commande) return { affiche: "", pourClaude: "Outil inconnu ou commande vide.", erreur: true };
+    const sauve = { original: this.original, type: this.type, dansOutil: this.dansOutil };
+    this.dansOutil = true;
+    let reponse = null;
+    try { reponse = (await this.comprendre(commande, ORDRE_OUTIL)).reponse; }
+    catch (e) { reponse = null; console.error(e); }
+    finally { this.original = sauve.original; this.type = sauve.type; this.dansOutil = sauve.dansOutil; }
+    if (!reponse) return { affiche: "", pourClaude: `Le chatbot fait main n'a pas compris « ${commande} ». Reformule avec une commande plus simple (voir la liste), ou réponds toi-même.`, erreur: true };
+    reponse = this.f(reponse);
+    return { affiche: reponse, pourClaude: "Fait. Voici ce que le chatbot a affiché :\n" + reponse.replace(/!\[(.*?)\]\((.+?)\)/g, "[image affichée : $1]") };
   },
 };
+/** L'outil donné à Claude : une commande en français, comme si l'utilisateur la tapait. */
+const OUTILS_IA = [{
+  name: "chatbot",
+  description: "Fait faire une vraie action au chatbot fait main de l'utilisateur et renvoie ce qu'il a affiché. "
+    + "Écris UNE commande simple en français, exactement comme l'utilisateur la taperait. Commandes comprises (exemples) :\n"
+    + "- Rappels / minuteur : « rappelle-moi dans 10 minutes de sortir le chien », « rappelle-moi demain à 18h d'appeler Léo », « minuteur 5 minutes », « mes rappels »\n"
+    + "- Agenda : « ajoute à mon agenda : dentiste demain à 14h », « qu'est-ce que j'ai demain ? »\n"
+    + "- Notes : « note que je dois finir le site », « mes notes », « coche 1 »\n"
+    + "- Images : « dessine un paysage la nuit », « crée une image d'un chat astronaute » (faite par OpenAI si c'est branché, sinon faite main : paysage, mer, espace, fractale, mandala, forêt, ville, arc-en-ciel, pixel art)\n"
+    + "- Modifier la DERNIÈRE image ou photo : « mets-la en noir et blanc », « sépia », « plus lumineuse », « floute-la », « tourne-la », « recadre en carré », « dessin au crayon », « écris Vacances dessus » ; avec OpenAI aussi : « ajoute un chapeau au chat sur l'image », « refais l'image en style manga »\n"
+    + "- Mini-jeux : « joue au pendu », « morpion », « motus », « quiz » · Histoires : « raconte-moi une histoire de pirate »\n"
+    + "- Code : « donne-moi un défi python », « exercice python », « ma progression »\n"
+    + "- Météo : « quel temps fait-il à Sion ? » · Sites : « ouvre youtube »\n"
+    + "- Calcul / conversion : « combien font 12 x 7 », « 10 km en miles »",
+  input_schema: { type: "object", properties: { commande: { type: "string", description: "La commande en français, ex. « rappelle-moi demain à 18h d'appeler mon frère »" } }, required: ["commande"] },
+}];
 /** Une photo envoyée avec une question (« qu'est-ce que tu vois ? ») : c'est Claude qui regarde. */
 const questionSurPhoto = (t) => /\?\s*$/.test(t) || contient(norm(t), "decris", "que vois", "qu est ce", "c est quoi", "analyse", "explique", "que represente", "lis le texte", "qui est");
 
@@ -4558,6 +4953,9 @@ const ORDRE_ETAPES = ["jeuEnCours", "atelier", "codeColle", "appris", "auRevoir"
 // mode codeur : seulement ce qui sert à coder
 const ORDRE_CODEUR = ["jeuEnCours", "atelier", "codeColle", "appris", "auRevoir", "commandesMemoire", "analyse", "etapePrenom", "reglages", "attenteReponse",
   "notes", "defis", "codeur", "code", "calcul", "codeurSecours"];
+// quand Claude demande une action (outil « chatbot ») : seulement les étapes qui FONT quelque chose, jamais Claude lui-même
+const ORDRE_OUTIL = ["atelier", "codeColle", "appris", "commandesMemoire", "reglages", "images", "conversion", "calcul", "capitale", "agenda", "internet", "pc",
+  "notes", "defis", "dicoPython", "code", "lancerJeu", "histoire", "questionsMemoire", "faits", "intentions"];
 const INTENTION = (nom) => D.INTENTIONS.find((i) => i.nom === nom);
 const SITES = { youtube: "https://www.youtube.com", google: "https://www.google.com", github: "https://github.com", gmail: "https://mail.google.com",
   netflix: "https://www.netflix.com", twitch: "https://www.twitch.tv", discord: "https://discord.com/app", wikipedia: "https://fr.wikipedia.org",
@@ -4772,35 +5170,43 @@ class Chatbot {
   quandAppris(cle) { const iso = this.mem.appris_quand[cle]; return iso ? depuis(iso) : null; }
 
   /* ================================================================ point d'entrée */
-  async repondre(texte) {
-    let brut = texte.trim();
+  async repondre(texte, { flux = null } = {}) {
+    const brut = texte.trim();
     if (!this.disc()) this.nouvelleDiscussion();
     const discussion = this.mem.active, titrer = this.etape !== "PRENOM";
     this.mem.nb_messages++;
     this.noterStat("jours", jourISO());
     this.original = brut;
-    if (!extraireCode(brut) && !(this.jeu && this.jeu.brut)) brut = developper(brut);
-    const t = norm(brut);
-    if (!t) return "Je n'ai pas compris, tu peux réécrire ?";
-    const mots = corriger(t.split(" "));
-    const tc = mots.join(" ");
-    const q = /\?\s*$/.test(brut) || ["quel", "quelle", "quels", "quelles", "qui", "quoi", "ou", "comment", "pourquoi", "combien", "quand"].includes(mots[0])
-      || ["est ce", "qu est", "que sais", "tu sais", "de quoi"].some((d) => t.startsWith(d));
-    this.type = null; this.boutons = null;
+    this.type = null; this.boutons = null; this.flux = flux; this.enDirect = false;
     const historique = this.messages().slice();
-    let reponse = null, etape = "secours";
-    for (etape of (this.mem.personnalite === "codeur" ? ORDRE_CODEUR : ORDRE_ETAPES)) {
-      reponse = await this["_" + etape](brut, t, tc, mots, q);
-      if (reponse) break;
-    }
-    const type = this.type || TYPES_ETAPES[etape];
-    if (reponse) reponse = this.relier(brut, t, type, reponse, historique);
+    const c = await this.comprendre(brut, this.mem.personnalite === "codeur" ? ORDRE_CODEUR : ORDRE_ETAPES);
+    this.flux = null;
+    if (c.vide) return "Je n'ai pas compris, tu peux réécrire ?";
+    let reponse = c.reponse;
+    const type = this.type || TYPES_ETAPES[c.etape];
+    if (reponse && !this.enDirect) reponse = this.relier(c.brut, c.t, type, reponse, historique);
     reponse = this.f(reponse || "…");
     this.ajouterMessage("user", this.original, discussion, { titrer });
     this.ajouterMessage("bot", reponse, discussion, { type, boutons: this.boutons });
     if (type === "salut" || type === "prenom") this.mem.derniere_salutation = maintenant();
     this.sauver();
     return reponse;
+  }
+  /** Passe le message dans les étapes du cerveau, dans l'ordre : la première qui répond gagne. */
+  async comprendre(brut, ordre) {
+    if (!extraireCode(brut) && !(this.jeu && this.jeu.brut)) brut = developper(brut);
+    const t = norm(brut);
+    if (!t) return { vide: true, reponse: null, etape: "secours", brut, t };
+    const mots = corriger(t.split(" "));
+    const tc = mots.join(" ");
+    const q = /\?\s*$/.test(brut) || ["quel", "quelle", "quels", "quelles", "qui", "quoi", "ou", "comment", "pourquoi", "combien", "quand"].includes(mots[0])
+      || ["est ce", "qu est", "que sais", "tu sais", "de quoi"].some((d) => t.startsWith(d));
+    let reponse = null, etape = "secours";
+    for (etape of ordre) {
+      reponse = await this["_" + etape](brut, t, tc, mots, q);
+      if (reponse) break;
+    }
+    return { reponse, etape, brut, t };
   }
 
   /* ================================================================ étapes */
@@ -4901,7 +5307,7 @@ class Chatbot {
     for (const [style, decl] of [["drole", ["mode drole", "sois drole", "mode marrant", "mode humour"]], ["serieux", ["mode serieux", "sois serieux"]], ["codeur", ["mode codeur", "mode code", "mode dev", "mode developpeur", "mode geek", "mode programmeur", "parle comme un codeur", "parle comme un developpeur"]], ["normal", ["mode normal", "sois normal", "redeviens normal"]]])
       if (contient(t, ...decl)) return this.changerPersonnalite(style);
     if (contient(t, "statut ia", "ia active", "ia activee", "tu as l ia", "es tu connecte", "l ia est branchee", "claude est branche", "tu utilises claude") && t.split(" ").length <= 6)
-      return IA.active ? "L'IA est branchée ✅ Je réponds d'abord avec mon cerveau fait main ; quand je ne comprends pas, je demande à Claude." + (IA.erreur ? ` (Dernier problème : ${IA.erreur})` : "")
+      return IA.active ? "L'IA est branchée ✅ Je réponds d'abord avec mon cerveau fait main ; quand je ne comprends pas, je passe la main.\n" + texteRoutageIA() + (IA.erreur ? `\n*(Dernier problème : ${IA.erreur})*` : "")
         : "Je suis **100 % fait main** : pas d'IA branchée, tout est dans mon propre cerveau (règles, TF-IDF et réseau de neurones) 🧠 Tu peux brancher Claude dans ⚙️ Réglages avec ta clé API.";
     return null;
   }
@@ -5302,17 +5708,24 @@ class Chatbot {
     if (francais.includes(cle) && !contient(t, "python", "code", "programm", "coder", "en py")) return null;
     return expliquerMotPy(cle);
   }
-  _codeurSecours(brut, t, tc, mots) {
+  async _codeurSecours(brut, t, tc, mots) {
     if (contient(t, ...S.SALUTATIONS) && mots.length <= 4) return "Salut {prenom} ! 🧑‍💻 On code quoi aujourd'hui ? Colle ton code ou pose ta question Python.";
     if (contient(t, "merci", "super", "genial", "trop bien", "cool", "parfait")) return "Avec plaisir ! 🐍 Autre chose à coder ?";
     if (contient(t, "ca va", "comment vas tu", "comment tu vas")) return "Ça compile ! 😄 Et toi, ton code, il marche ? Colle-le, je regarde.";
     // en mode codeur, tout est vu comme une question de code : la fiche de cours la plus proche
     const [cle, score] = CLASSIFIEUR_CODE.predire(brut);
+    if (cle && score >= 0.6 && (!IA.fournisseur("code") || fichePertinente(cle, brut))) return D.FICHES[cle].texte;
+    if (contient(t, "cours", "lecon", "apprendre", "apprends moi", "sommaire", "debuter", "commencer", "tuto") && mots.length <= 4) return D.FICHES.sommaire.texte;
+    if (IA.fournisseur(categorieTexte(brut, true)) && !this.dansOutil) {      // l'IA choisie pour la catégorie « Code » prend le relais
+      const r = await this.demanderIA(brut, null, { flux: this.flux, categorie: categorieTexte(brut, true) });
+      if (r) { this.enDirect = !!this.flux; return r; }
+      if (IA.erreur) return `⚠️ **${IA.dernierNom} n'a pas pu répondre** : ${IA.erreur}`;
+    }
     if (cle && score >= 0.4) return D.FICHES[cle].texte;
     if (contient(t, "cours", "lecon", "apprendre", "apprends moi", "sommaire", "debuter", "commencer", "tuto")) return D.FICHES.sommaire.texte;
     return D.HORS_SUJET;
   }
-  _code(brut, t) { const r = repondreCode(brut, t); if (r) this.noterStat("sujets", "code"); return r; }
+  _code(brut, t) { const r = repondreCode(brut, t, !!IA.fournisseur("code")); if (r) this.noterStat("sujets", "code"); return r; }
   demarrerJeu(nom) { this.jeu = new JEUX[nom](this.mem); this.noterStat("jeux", nom); return this.jeu.debut(); }
   _lancerJeu(brut, t, tc, mots) {
     if (contient(t, "on joue", "joue avec moi", "on fait un jeu", "jouer a un jeu", "mini jeu", "mini jeux", "faire un jeu", "on se fait un jeu", "lance un jeu", "un petit jeu", "on joue a un jeu")) {
@@ -5389,7 +5802,7 @@ class Chatbot {
         if (!dejaSu) m.aime_pas = [...m.aime_pas, v].slice(-30);
       }
     } else {
-      const a = /(?:j['’ ]?aime|j['’ ]?adore|je kiffe|je suis fan (?:de|du|des|d['’]))\s*(?:bien |beaucoup |trop |vraiment |grave )?([^.!?]+)/i.exec(brut);
+      const a = /(?:j['’ ]?aime|j['’ ]?adore|je kiffe|je suis fan (?:de|du|des|d['’]))\b\s*(?:bien |beaucoup |trop |vraiment |grave )?([^.!?]+)/i.exec(brut);
       if (a) {
         const v = nettoyerValeur(a[1], false);
         if (v && !S.MOTS_INTERDITS_COMME_VALEUR.has(norm(v)) && !norm(v).startsWith("pas")) {
@@ -5448,7 +5861,7 @@ class Chatbot {
   _intentions(brut, t, tc, mots) {
     const m = this.trouverIntention(brut, tc, mots);
     if (!m) return null;
-    if (IA.active) {
+    if (IA.fournisseur(categorieTexte(brut)) && !this.dansOutil) {
       // Claude est branché : je ne garde que ce dont je suis SÛR (message court, entièrement sur ce sujet), le reste part à Claude
       const couv = this.motsImportants(brut).size ? this.couverture(brut, m.nom) : 1;      // « salut », « merci » : rien d'autre dans la phrase
       let sur = mots.length <= 3 && couv >= 0.75 && !contient(t, "tu connais", "c est qui");
@@ -5474,11 +5887,11 @@ class Chatbot {
     return hasard(m.reponses);
   }
   async _secours(brut, t, tc, mots, q) {
-    if (IA.active) {                                    // ta clé API : Claude prend le relais quand je ne comprends pas
-      const r = await this.demanderIA(brut);
-      if (r) return r;
+    if (IA.fournisseur(categorieTexte(brut))) {         // ta clé API : Claude (ou OpenAI) prend le relais quand je ne comprends pas
+      const r = await this.demanderIA(brut, null, { flux: this.flux });
+      if (r) { this.enDirect = !!this.flux; return r; }
       this.derniereErreurIA = IA.erreur;
-      if (IA.erreur) return `⚠️ Je ne comprends pas tout seul, et **Claude n'a pas pu répondre** : ${IA.erreur}\n*(Tu peux tester ta clé dans ⚙️ Réglages → Intelligence artificielle, ou couper « Utiliser Claude ».)*`;
+      if (IA.erreur) return `⚠️ Je ne comprends pas tout seul, et **${IA.dernierNom} n'a pas pu répondre** : ${IA.erreur}\n*(Tu peux tester ta clé dans ⚙️ Réglages → Intelligence artificielle, ou couper « Utiliser l'IA ».)*`;
     }
     const sujet = this.sujetWiki(brut);
     if (sujet) { const w = await this.wiki(sujet); if (w) return w; }
@@ -5532,7 +5945,7 @@ const PERSONNELS = new Set(["tu", "toi", "ton", "ta", "tes", "je", "moi", "mon",
 const QUESTION_WIKI = /^(?:dis[- ]moi\s+)?(?:c['’]?\s*est\s+quoi|c\s+koi|qu['’]?\s*est[- ]ce\s+que\s+c['’]?\s*est(?:\s+que)?|qu['’]?\s*est[- ]ce\s+qu['’]?|qu['’]?\s*est[- ]ce\s+que|que\s+veut\s+dire|[çc]a\s+veut\s+dire\s+quoi|d[ée]finition\s+(?:de|du|des|d['’])|qui\s+(?:est|était|etait|a\s+été|a\s+ete|sont|étaient)|parle[- ]moi\s+(?:de|du|des|d['’])|explique[- ]moi|tu\s+connais|c['’]?\s*[ée]tait\s+quoi|c['’]?\s*est\s+qui|que\s+sais[- ]tu\s+(?:sur|de)|o[uù]\s+se\s+trouve|o[uù]\s+est|quand\s+a\s+[ée]t[ée]\s+(?:cr[ée]{1,2}|invent[ée]e?|construite?)|qui\s+a\s+invent[ée])\s+(.+?)\s*[?!.]*$/i;
 const TEXTE_AIDE_WEB = D.TEXTE_AIDE
   .replace(/- \*\*Parler au lieu d'écrire\*\*[^\n]*/, "- **Parler au lieu d'écrire** : touche 🎤, ou 📞 **Appel** pour discuter à voix haute comme en face")
-  .replace(/- \*\*Fichiers\*\*[^\n]*\n?/, "").replace(/- \*\*IA\*\*[^\n]*\n?/, "")
+  .replace(/- \*\*Fichiers\*\*[^\n]*\n?/, "").replace(/- \*\*IA\*\*[^\n]*\n?/, "- **IA** (optionnelle) : clé Claude et/ou OpenAI dans ⚙️ Réglages · OpenAI **crée et modifie des images** (« dessine un chat astronaute », « ajoute-lui un chapeau ») · « statut ia » pour voir qui fait quoi\n")
   .replace(/- \*\*Ton ordinateur\*\*[^\n]*/, "- **Ouvrir un site** : « ouvre youtube », « va sur zyntracode.ch »")
   .replace("· **▶ Lancer** pour l'exécuter", "· **▶ Lancer** pour l'exécuter (mon mini-Python fait main)")
   .replace(/\n$/, "") + "\n- **Ta mémoire du PC** : ⚙️ Réglages → « Importer » le fichier de ton profil (`donnees_chatbot/profils/…json`)";
@@ -5823,7 +6236,7 @@ function rendreListe() {
   $("#titre").textContent = (d && d.epinglee ? "📌 " : "") + (d ? d.titre : "Mon Chatbot");
   $("#nom-profil").textContent = bot.prenom || "Toi";
   $("#pastille").textContent = (bot.prenom || "?")[0].toUpperCase();
-  $("#info-profil").textContent = "Mode " + ({ normal: "normal", drole: "drôle", serieux: "sérieux", codeur: "codeur" }[bot.mem.personnalite] || "normal") + (IA.active ? " · fait main + Claude" : " · fait main");
+  $("#info-profil").textContent = "Mode " + ({ normal: "normal", drole: "drôle", serieux: "sérieux", codeur: "codeur" }[bot.mem.personnalite] || "normal") + (IA.active ? " · fait main + " + [IA.claudeOk && "Claude", IA.openaiOk && "OpenAI"].filter(Boolean).join(" + ") : " · fait main");
 }
 function menuDiscussion(i) {
   const d = bot.disc(i);
@@ -5896,18 +6309,21 @@ async function envoyerPhoto(e) {
   ui.occupe = true;
   bot.ajouterMessage("user", `📷 ${f.name}` + (demande ? `\n${demande}` : "")); bot.sauver();
   $("#messages").append(creerBulle(bot.messages()[bot.messages().length - 1])); descendre();
+  const ind = el("div", { className: "msg bot ecrit" }, canvasAvatar(28, "reflechit"), el("div", { className: "bulle" }, el("span"), el("span"), el("span")));
+  $("#messages").append(ind); descendre();
   let reponse;
   try {
     const img = await lirePhoto(f);
-    if (IA.active && demande && questionSurPhoto(demande)) {          // une question sur la photo : c'est Claude qui regarde
+    if (IA.fournisseur("discussion") && demande && questionSurPhoto(demande)) {          // une question sur la photo : c'est Claude qui regarde
       const petite = Math.max(img.l, img.h) > 1024 ? redimensionnerImg(img, Math.round(img.l * 1024 / Math.max(img.l, img.h)), Math.round(img.h * 1024 / Math.max(img.l, img.h))) : img;
       const data = versCanvas(petite).toDataURL("image/jpeg", 0.85).split(",")[1];
       const id = await garderImageWeb(img); bot.retenirImage(id);
       const r = await bot.demanderIA(demande, { type: "image/jpeg", data });
-      reponse = `![ta photo](img:${id})\n` + (r || `Je n'ai pas réussi à demander à Claude 😕 (${IA.erreur})`);
+      reponse = `![ta photo](img:${id})\n` + (r || `Je n'ai pas réussi à demander à ${IA.dernierNom} 😕 (${IA.erreur})`);
     } else reponse = await bot.photoJointe(img, f.name, demande);
   }
   catch (err) { reponse = `Je n'arrive pas à lire cette image 😕 (${err.message})`; }
+  ind.remove();
   bot.ajouterMessage("bot", reponse, bot.mem.active, { type: "image", boutons: bot.boutons }); bot.boutons = null; bot.sauver();
   $("#messages").append(creerBulle(bot.messages()[bot.messages().length - 1]));
   ui.occupe = false;
@@ -5987,15 +6403,41 @@ async function envoyer(texte, { garder = false } = {}) {
   zone.append(ind); descendre();
   changerExpression("reflechit", 0);
   const debut = Date.now();
+  // la réponse de Claude arrive en direct : on l'affiche mot par mot pendant qu'il l'écrit
+  const direct = { ligne: null, texte: "", dessin: 0, prevu: null };
+  const dessiner = () => {
+    direct.prevu = null; direct.dessin = Date.now();
+    if (!direct.ligne) return;
+    direct.ligne.querySelector(".bulle").innerHTML = versHTML(fermerMarkdown(direct.texte), { boutonsCode: false });
+    brancherImages(direct.ligne.querySelector(".bulle"));
+    descendre();
+  };
+  const flux = (morceau) => {
+    direct.texte += morceau;
+    if (!direct.ligne) {
+      ind.remove();
+      direct.ligne = creerBulle({ qui: "bot", texte: "", quand: maintenant() }, { texteAffiche: "" });
+      zone.append(direct.ligne);
+      changerExpression("content", 0);
+    }
+    if (!direct.prevu) direct.prevu = setTimeout(dessiner, Math.max(0, 60 - (Date.now() - direct.dessin)));
+  };
   let reponse;
-  try { reponse = await bot.repondre(texte); } catch (e) { console.error(e); reponse = `Oups, j'ai eu un bug 🐛 (${e.message})`; }
-  await new Promise((r) => setTimeout(r, Math.max(0, 420 - (Date.now() - debut))));
-  ind.remove();
+  try { reponse = await bot.repondre(texte, { flux }); } catch (e) { console.error(e); reponse = `Oups, j'ai eu un bug 🐛 (${e.message})`; }
+  if (direct.prevu) clearTimeout(direct.prevu);
   const msgs = bot.messages(), m = msgs[msgs.length - 1] || { qui: "bot", texte: reponse, quand: maintenant() };
-  const ligne = creerBulle(m, { texteAffiche: "" });
-  zone.append(ligne);
-  changerExpression(humeurDe(reponse, bot.mem.personnalite));
-  await ecrireAnime(ligne, m.texte);
+  if (direct.ligne) {                      // déjà affichée en direct : on remplace par la version finale (avec les boutons du code)
+    const finale = creerBulle(m);
+    direct.ligne.replaceWith(finale);
+    changerExpression(humeurDe(reponse, bot.mem.personnalite));
+  } else {
+    await new Promise((r) => setTimeout(r, Math.max(0, 420 - (Date.now() - debut))));
+    ind.remove();
+    const ligne = creerBulle(m, { texteAffiche: "" });
+    zone.append(ligne);
+    changerExpression(humeurDe(reponse, bot.mem.personnalite));
+    await ecrireAnime(ligne, m.texte);
+  }
   ui.occupe = false;
   majDerniers(); rendreListe(); descendre();
   if (bot.mem.reglages.voix && !appel.actif) parler(m.texte);
@@ -6176,22 +6618,56 @@ function feuilleReglages() {
     oeil.onclick = () => { cle.type = cle.type === "password" ? "text" : "password"; };
     const modele = el("input", { className: "entree", value: IA.config.modele || "", placeholder: MODELE_IA, autocomplete: "off", ariaLabel: "Modèle" });
     modele.setAttribute("autocapitalize", "off");
-    const enregistrerIA = () => { IA.config.cle = IA.nettoyerCle(cle.value); IA.config.modele = modele.value.trim(); IA.sauver(); rendreListe(); };
-    cle.onchange = enregistrerIA; modele.onchange = enregistrerIA;
-    const statutIA = el("p", { className: "statut-ia", textContent: IA.active ? "✓ Claude est branché." : "" });
+    const cleO = el("input", { className: "entree", type: "password", value: IA.config.cle_openai || "", placeholder: "sk-proj-…", autocomplete: "off", ariaLabel: "Clé API OpenAI" });
+    cleO.setAttribute("autocapitalize", "off"); cleO.spellcheck = false;
+    const oeilO = el("button", { className: "bouton", type: "button", textContent: "👁", ariaLabel: "Afficher ou cacher la clé OpenAI" });
+    oeilO.onclick = () => { cleO.type = cleO.type === "password" ? "text" : "password"; };
+    const modeleO = el("input", { className: "entree", value: IA.config.modele_openai || "", placeholder: "auto", autocomplete: "off", ariaLabel: "Modèle OpenAI (texte)" });
+    const modeleImg = el("input", { className: "entree", value: IA.config.modele_image_openai || "", placeholder: "auto", autocomplete: "off", ariaLabel: "Modèle OpenAI (images)" });
+    modeleO.setAttribute("autocapitalize", "off"); modeleImg.setAttribute("autocapitalize", "off");
+    const enregistrerIA = () => {
+      const avant = IA.config.cle_openai;
+      IA.config.cle = IA.nettoyerCle(cle.value); IA.config.modele = modele.value.trim();
+      IA.config.cle_openai = IA.nettoyerCle(cleO.value); IA.config.modele_openai = modeleO.value.trim(); IA.config.modele_image_openai = modeleImg.value.trim();
+      if (avant !== IA.config.cle_openai) delete IA.config.auto_openai;          // nouvelle clé : je regarderai de nouveau ses modèles
+      IA.sauver(); rendreListe();
+    };
+    for (const x of [cle, modele, cleO, modeleO, modeleImg]) x.onchange = enregistrerIA;
+    const statutIA = el("p", { className: "statut-ia", textContent: IA.active ? "✓ " + [IA.claudeOk && "Claude", IA.openaiOk && "OpenAI"].filter(Boolean).join(" et ") + (IA.claudeOk && IA.openaiOk ? " sont branchés." : " est branché.") : "" });
     const tester = el("button", { className: "bouton principal", type: "button", textContent: "Tester" });
     tester.onclick = async () => {
       enregistrerIA();
+      if (!IA.config.cle && !IA.config.cle_openai) { statutIA.textContent = "Colle d'abord une clé (Claude ou OpenAI)."; statutIA.style.color = "var(--danger)"; return; }
       statutIA.textContent = "Test en cours…"; statutIA.style.color = "";
-      const r = await IA.appeler([{ role: "user", content: "Réponds seulement : OK" }], "", 10);
-      statutIA.textContent = r ? "✓ Connexion réussie ! L'IA est prête." : "✗ " + IA.erreur;
-      statutIA.style.color = r ? "var(--succes)" : "var(--danger)";
+      const lignes = []; let ok = true;
+      if (IA.config.cle) { const r = await IA.appeler([{ role: "user", content: "Réponds seulement : OK" }], "", 10); ok = ok && !!r; lignes.push(r ? "✓ Claude : connexion réussie." : "✗ Claude : " + IA.erreur); }
+      if (IA.config.cle_openai) {
+        delete IA.config.auto_openai;
+        const m = await OPENAI.modeles();
+        const r = IA.erreur && !m.chat ? null : await OPENAI.appelerComplet([{ role: "user", content: "Réponds seulement : OK" }], "", { maxTokens: 20 });
+        ok = ok && !!r;
+        lignes.push(r ? `✓ OpenAI : connexion réussie (texte : ${m.chat}${m.image ? ", images : " + m.image : ", ⚠️ pas de modèle d'images sur ce compte"}).` : "✗ OpenAI : " + IA.erreur);
+      }
+      statutIA.textContent = lignes.join("\n"); statutIA.style.whiteSpace = "pre-line";
+      statutIA.style.color = ok ? "var(--succes)" : "var(--danger)";
     };
+    const routage = (IA.config.routage = IA.config.routage || {});
+    const choixCat = (cat, options) => segments(options, routage[cat] || "auto", (v) => { routage[cat] = v; IA.sauver(); });
+    const TOUS = [["auto", "Auto"], ["fait_main", "Fait main"], ["claude", "Claude"], ["openai", "OpenAI"]];
     c.append(section("Intelligence artificielle (optionnel)",
-      ligneReglage("Clé API Anthropic", "Quand je ne comprends pas, je demande à Claude. La clé reste seulement sur ce téléphone.", el("div", { className: "choix" }, cle, oeil)),
-      ligneReglage("Modèle", `Vide = ${MODELE_IA} (rapide et pas cher)`, modele),
-      ligneReglage("Utiliser Claude", "Coupe-le pour redevenir 100 % fait main (sans effacer la clé)", interrupteur(IA.config.active !== false, (v) => { IA.config.active = v; IA.sauver(); rendreListe(); }, "ia")),
+      ligneReglage("Clé Claude (Anthropic)", "Quand je ne comprends pas, je demande à Claude. Les clés restent seulement sur ce téléphone.", el("div", { className: "choix" }, cle, oeil)),
+      ligneReglage("Modèle Claude", `Vide = ${MODELE_IA} (rapide et pas cher)`, modele),
+      ligneReglage("Clé OpenAI", "Pour créer et modifier des images (et répondre si tu le choisis plus bas). platform.openai.com → API keys", el("div", { className: "choix" }, cleO, oeilO)),
+      ligneReglage("Modèle OpenAI (texte)", "Vide = je choisis tout seul dans ton compte", modeleO),
+      ligneReglage("Modèle OpenAI (images)", "Vide = je choisis tout seul (gpt-image)", modeleImg),
+      ligneReglage("Utiliser l'IA", "Coupe-le pour redevenir 100 % fait main (sans effacer les clés)", interrupteur(IA.config.active !== false, (v) => { IA.config.active = v; IA.sauver(); rendreListe(); }, "ia")),
       ligneReglage("Connexion", null, tester), statutIA));
+    c.append(section("Qui s'occupe de quoi ?",
+      el("p", { className: "astuce-cat", textContent: "Le fait main répond d'abord à ce qu'il sait faire. Pour le reste, choisis qui prend le relais. « Auto » : OpenAI pour les images, Claude pour le texte (ou OpenAI s'il n'y a que lui)." }),
+      ligneReglage("🖼️ Images", "Créer, refaire, modifier une image (les retouches simples restent faites main)", choixCat("images", [["auto", "Auto"], ["fait_main", "Fait main"], ["openai", "OpenAI"]])),
+      ligneReglage("📝 Réduction de texte", "« Résume ce texte », « fais plus court »…", choixCat("resume", TOUS)),
+      ligneReglage("🐍 Code", "Questions de programmation (et le mode codeur)", choixCat("code", TOUS)),
+      ligneReglage("💬 Discussion", "Tout le reste : questions, conseils, explications…", choixCat("discussion", TOUS))));
     c.append(section("Internet et rappels",
       ligneReglage("Internet (météo, Wikipédia)", "Je me connecte seulement quand tu demandes la météo ou une définition.", interrupteur(r.internet !== false, (v) => { r.internet = v; sauver(); }, "internet")),
       ligneReglage("Notifications des rappels", "Pour être prévenu même si l'onglet est en arrière-plan", "Notification" in window ? notif : el("small", { textContent: "Non disponible" }))));
