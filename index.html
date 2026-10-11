@@ -299,6 +299,8 @@ body.ide-actif { overflow: hidden; }
 .image-bulle img { display: block; max-width: min(100%, 460px); border-radius: 10px; cursor: zoom-in; background: var(--code-fond); min-height: 40px; }
 .image-grande { width: 100%; border-radius: 10px; }
 .btn-photo { font-size: 18px; }
+.statut-ia { font-size: 13px; margin: 0; padding: 8px 14px 12px; color: var(--muet); }
+.statut-ia:empty { display: none; }
 
 </style>
 </head>
@@ -4409,6 +4411,88 @@ const ImagesChatbot = {
 };
 
 /* ============================================================================================
+   L'IA (optionnelle) : ta clé API Anthropic, comme sur PC.
+   Le cerveau fait main répond d'abord ; Claude prend le relais seulement quand il ne comprend pas,
+   et pour les questions sur une photo (« qu'est-ce que tu vois ? »).
+   La clé reste UNIQUEMENT sur ce téléphone (dans ce navigateur), jamais dans la mémoire exportée.
+   ============================================================================================ */
+const CLE_CONFIG_IA = "chatbot_config_v1", MODELE_IA = "claude-haiku-4-5-20251001";
+const IA = {
+  config: (() => { try { return JSON.parse(localStorage.getItem(CLE_CONFIG_IA) || "null") || {}; } catch (e) { return {}; } })(),
+  erreur: "",
+  sauver() { try { localStorage.setItem(CLE_CONFIG_IA, JSON.stringify(this.config)); } catch (e) { /* stockage indisponible */ } },
+  get active() { return !!this.config.cle && this.config.active !== false; },
+  nettoyerCle: (c) => (c || "").replace(/\s+/g, "").replace(/^["'`«»]+|["'`«»]+$/g, ""),
+  /** Appel à l'API Anthropic écrit à la main avec fetch. Renvoie le texte, ou null (et IA.erreur explique pourquoi). */
+  async appeler(messages, systeme = "", maxTokens = 900, cle = null, modele = null) {
+    cle = this.nettoyerCle(cle || this.config.cle);
+    modele = (modele || this.config.modele || MODELE_IA).trim().replace(/^["'`]+|["'`]+$/g, "");
+    if (!cle) { this.erreur = "Il n'y a pas de clé API."; return null; }
+    if (cle.startsWith("apikey_")) { this.erreur = "« apikey_… » c'est seulement le NUMÉRO de la clé, pas la clé. Crée une nouvelle clé sur console.anthropic.com → API Keys et copie tout de suite le texte qui commence par « sk-ant- »."; return null; }
+    if (!cle.startsWith("sk-ant-")) { this.erreur = "Ce n'est pas une clé API Anthropic : elle doit commencer par « sk-ant- »."; return null; }
+    let r;
+    try {
+      r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "x-api-key": cle, "anthropic-version": "2023-06-01", "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true" },
+        body: JSON.stringify({ model: modele, max_tokens: maxTokens, system: systeme, messages }),
+      });
+    } catch (e) {
+      this.erreur = "Impossible de joindre Claude. Vérifie ta connexion internet. Si tu utilises la page en ligne (sur claude.ai), elle n'a pas le droit de contacter d'autres sites : ouvre plutôt le fichier chatbot-telephone.html sur ton téléphone.";
+      return null;
+    }
+    let donnees = {};
+    try { donnees = await r.json(); } catch (e) { /* réponse vide */ }
+    if (!r.ok) { const err = donnees.error || {}; this.erreur = expliquerErreurApi(r.status, err.type || "", err.message || "", modele); return null; }
+    this.erreur = "";
+    const texte = (donnees.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+    return texte || null;
+  },
+};
+function expliquerErreurApi(code, genre, message, modele) {
+  const m = (message || "").toLowerCase();
+  if (code === 401 || genre === "authentication_error") return "Clé API refusée : elle est fausse, incomplète ou supprimée. Recopie-la EN ENTIER (elle commence par « sk-ant- ») depuis console.anthropic.com → API Keys, ou crée-en une nouvelle.";
+  if (/credit|billing/.test(m)) return "Pas assez de crédit sur ton compte API. Va sur console.anthropic.com → Billing et ajoute un peu d'argent (l'abonnement Claude du site ne compte pas pour l'API).";
+  if (code === 404 || genre === "not_found_error" || (/model/.test(m) && /not found|invalid/.test(m))) return `Le modèle « ${modele} » n'existe pas (ou est mal écrit). Vide la case Modèle (ça prendra ${MODELE_IA}).`;
+  if (code === 403 || genre === "permission_error") return `Ta clé n'a pas le droit d'utiliser ce modèle. Essaie ${MODELE_IA}.`;
+  if (code === 429 || genre === "rate_limit_error") return "Trop de demandes d'un coup (limite atteinte). Attends une minute puis réessaie.";
+  if ([500, 502, 503, 529].includes(code) || ["overloaded_error", "api_error"].includes(genre)) return "Les serveurs d'Anthropic sont surchargés en ce moment. Réessaie dans quelques minutes.";
+  return `Erreur ${code} : ${message || genre || "inconnue"}`;
+}
+/* ---------------- méthodes ajoutées au Chatbot */
+const IAChatbot = {
+  /** Demande à Claude, avec le contexte : ce que je sais sur toi + la discussion en cours. image = {type, data} (base64). */
+  async demanderIA(message, image = null) {
+    if (!IA.active) return null;
+    const autres = this.liste().filter(([i, d]) => i !== this.mem.active && d.messages.length).slice(0, 8).map(([, d]) => d.titre + (d.resume ? ` (${d.resume})` : ""));
+    const systeme = `Tu es le chatbot personnel de ${this.prenom || "l'utilisateur"}, une application écrite à la main (version téléphone). `
+      + "Réponds en français, de façon courte et naturelle (2 à 4 phrases, plus seulement si on te demande du code ou une explication). "
+      + "Tu peux utiliser **gras**, *italique*, `code`, des listes avec « - » et des blocs ```code```. "
+      + `Personnalité actuelle : ${this.mem.personnalite || "normal"}.\nCe que tu sais sur l'utilisateur (valable dans toutes vos discussions) :\n${this.resume()}`
+      + (autres.length ? "\nVos autres discussions : " + autres.join(" ; ") : "");
+    const messages = [];
+    for (const h of this.messages().slice(-14)) {
+      const role = h.qui === "user" ? "user" : "assistant", texte = h.texte.replace(/!\[(.*?)\]\((.+?)\)/g, "(image)");
+      if (messages.length && messages[messages.length - 1].role === role) messages[messages.length - 1].content += "\n" + texte;
+      else messages.push({ role, content: texte });
+    }
+    while (messages.length && messages[0].role !== "user") messages.shift();
+    let contenu = message || (image ? "Décris cette image." : "");
+    if (image) contenu = [{ type: "image", source: { type: "base64", media_type: image.type, data: image.data } }, { type: "text", text: contenu }];
+    if (messages.length && messages[messages.length - 1].role === "user") {
+      const prec = messages.pop().content;
+      if (Array.isArray(contenu)) contenu[1].text = prec + "\n" + contenu[1].text; else contenu = prec + "\n" + contenu;
+    }
+    messages.push({ role: "user", content: contenu });
+    const r = await IA.appeler(messages, systeme, 900);
+    if (r) { this.noterStat("sujets", "ia"); this.type = "ia"; }
+    return r;
+  },
+};
+/** Une photo envoyée avec une question (« qu'est-ce que tu vois ? ») : c'est Claude qui regarde. */
+const questionSurPhoto = (t) => /\?\s*$/.test(t) || contient(norm(t), "decris", "que vois", "qu est ce", "c est quoi", "analyse", "explique", "que represente", "lis le texte", "qui est");
+
+/* ============================================================================================
    LE CERVEAU — la même logique que chatbot.py : une suite d'étapes, la première qui répond gagne
    ============================================================================================ */
 const MOTIF_PRENOM = /(?:je\s+m['’\s]?appel+e|moi\s+c['’\s]?est|mon\s+pr[ée]nom\s+(?:c['’\s]?est|est)|appel+e[\s-]moi)\s+([^\W\d_][\w-]*)/iu;
@@ -5371,6 +5455,11 @@ class Chatbot {
     return hasard(m.reponses);
   }
   async _secours(brut, t, tc, mots, q) {
+    if (IA.active) {                                    // ta clé API : Claude prend le relais quand je ne comprends pas
+      const r = await this.demanderIA(brut);
+      if (r) return r;
+      this.derniereErreurIA = IA.erreur;
+    }
     const sujet = this.sujetWiki(brut);
     if (sujet) { const w = await this.wiki(sujet); if (w) return w; }
     for (const g of [...this.mem.aime, ...Object.values(this.mem.preferes)]) { const x = norm(g).replace(/^(?:le|la|les|l|du|de|des|un|une) /, ""); if (x.length > 2 && contient(t, x)) return `Ah, **${g}** ! Tu m'as dit que tu aimais ça 😄 Raconte-moi !`; }
@@ -5432,6 +5521,8 @@ const TEXTE_AIDE_WEB = D.TEXTE_AIDE
 Object.defineProperties(Chatbot.prototype, Object.getOwnPropertyDescriptors(AtelierCode));
 // les images (générer et retoucher) : voir 06c_images.js
 Object.defineProperties(Chatbot.prototype, Object.getOwnPropertyDescriptors(ImagesChatbot));
+// l'IA (optionnelle, avec ta clé) : voir 06d_ia.js
+Object.defineProperties(Chatbot.prototype, Object.getOwnPropertyDescriptors(IAChatbot));
 
 /* ============================================================================================
    LE VISAGE DU ROBOT — dessiné à la main sur un <canvas>, comme sur PC (expressions, chapeaux, lunettes)
@@ -5712,7 +5803,7 @@ function rendreListe() {
   $("#titre").textContent = (d && d.epinglee ? "📌 " : "") + (d ? d.titre : "Mon Chatbot");
   $("#nom-profil").textContent = bot.prenom || "Toi";
   $("#pastille").textContent = (bot.prenom || "?")[0].toUpperCase();
-  $("#info-profil").textContent = "Mode " + ({ normal: "normal", drole: "drôle", serieux: "sérieux", codeur: "codeur" }[bot.mem.personnalite] || "normal") + " · fait main";
+  $("#info-profil").textContent = "Mode " + ({ normal: "normal", drole: "drôle", serieux: "sérieux", codeur: "codeur" }[bot.mem.personnalite] || "normal") + (IA.active ? " · fait main + Claude" : " · fait main");
 }
 function menuDiscussion(i) {
   const d = bot.disc(i);
@@ -5786,7 +5877,16 @@ async function envoyerPhoto(e) {
   bot.ajouterMessage("user", `📷 ${f.name}` + (demande ? `\n${demande}` : "")); bot.sauver();
   $("#messages").append(creerBulle(bot.messages()[bot.messages().length - 1])); descendre();
   let reponse;
-  try { reponse = await bot.photoJointe(await lirePhoto(f), f.name, demande); }
+  try {
+    const img = await lirePhoto(f);
+    if (IA.active && demande && questionSurPhoto(demande)) {          // une question sur la photo : c'est Claude qui regarde
+      const petite = Math.max(img.l, img.h) > 1024 ? redimensionnerImg(img, Math.round(img.l * 1024 / Math.max(img.l, img.h)), Math.round(img.h * 1024 / Math.max(img.l, img.h))) : img;
+      const data = versCanvas(petite).toDataURL("image/jpeg", 0.85).split(",")[1];
+      const id = await garderImageWeb(img); bot.retenirImage(id);
+      const r = await bot.demanderIA(demande, { type: "image/jpeg", data });
+      reponse = `![ta photo](img:${id})\n` + (r || `Je n'ai pas réussi à demander à Claude 😕 (${IA.erreur})`);
+    } else reponse = await bot.photoJointe(img, f.name, demande);
+  }
   catch (err) { reponse = `Je n'arrive pas à lire cette image 😕 (${err.message})`; }
   bot.ajouterMessage("bot", reponse, bot.mem.active, { type: "image", boutons: bot.boutons }); bot.boutons = null; bot.sauver();
   $("#messages").append(creerBulle(bot.messages()[bot.messages().length - 1]));
@@ -6049,6 +6149,29 @@ function feuilleReglages() {
       ligneReglage("Micro et appel", dispoMicro ? "Reconnaissance vocale disponible ✓" : "Pas disponible dans ce navigateur (essaie Chrome sur Android, ou Safari)", el("span"))));
     const notif = el("button", { className: "bouton", type: "button", textContent: "Activer" });
     notif.onclick = async () => { try { const p = await Notification.requestPermission(); toast(p === "granted" ? "Notifications activées ✓" : "Notifications refusées"); } catch (e) { toast("Pas de notifications ici"); } };
+    // ---- l'IA (optionnelle)
+    const cle = el("input", { className: "entree", type: "password", value: IA.config.cle || "", placeholder: "sk-ant-…", autocomplete: "off", ariaLabel: "Clé API Anthropic" });
+    cle.setAttribute("autocapitalize", "off"); cle.spellcheck = false;
+    const oeil = el("button", { className: "bouton", type: "button", textContent: "👁", ariaLabel: "Afficher ou cacher la clé" });
+    oeil.onclick = () => { cle.type = cle.type === "password" ? "text" : "password"; };
+    const modele = el("input", { className: "entree", value: IA.config.modele || "", placeholder: MODELE_IA, autocomplete: "off", ariaLabel: "Modèle" });
+    modele.setAttribute("autocapitalize", "off");
+    const enregistrerIA = () => { IA.config.cle = IA.nettoyerCle(cle.value); IA.config.modele = modele.value.trim(); IA.sauver(); rendreListe(); };
+    cle.onchange = enregistrerIA; modele.onchange = enregistrerIA;
+    const statutIA = el("p", { className: "statut-ia", textContent: IA.active ? "✓ Claude est branché." : "" });
+    const tester = el("button", { className: "bouton principal", type: "button", textContent: "Tester" });
+    tester.onclick = async () => {
+      enregistrerIA();
+      statutIA.textContent = "Test en cours…"; statutIA.style.color = "";
+      const r = await IA.appeler([{ role: "user", content: "Réponds seulement : OK" }], "", 10);
+      statutIA.textContent = r ? "✓ Connexion réussie ! L'IA est prête." : "✗ " + IA.erreur;
+      statutIA.style.color = r ? "var(--succes)" : "var(--danger)";
+    };
+    c.append(section("Intelligence artificielle (optionnel)",
+      ligneReglage("Clé API Anthropic", "Quand je ne comprends pas, je demande à Claude. La clé reste seulement sur ce téléphone.", el("div", { className: "choix" }, cle, oeil)),
+      ligneReglage("Modèle", `Vide = ${MODELE_IA} (rapide et pas cher)`, modele),
+      ligneReglage("Utiliser Claude", "Coupe-le pour redevenir 100 % fait main (sans effacer la clé)", interrupteur(IA.config.active !== false, (v) => { IA.config.active = v; IA.sauver(); rendreListe(); }, "ia")),
+      ligneReglage("Connexion", null, tester), statutIA));
     c.append(section("Internet et rappels",
       ligneReglage("Internet (météo, Wikipédia)", "Je me connecte seulement quand tu demandes la météo ou une définition.", interrupteur(r.internet !== false, (v) => { r.internet = v; sauver(); }, "internet")),
       ligneReglage("Notifications des rappels", "Pour être prévenu même si l'onglet est en arrière-plan", "Notification" in window ? notif : el("small", { textContent: "Non disponible" }))));
