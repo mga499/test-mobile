@@ -4431,16 +4431,22 @@ const IA = {
     if (cle.startsWith("apikey_")) { this.erreur = "« apikey_… » c'est seulement le NUMÉRO de la clé, pas la clé. Crée une nouvelle clé sur console.anthropic.com → API Keys et copie tout de suite le texte qui commence par « sk-ant- »."; return null; }
     if (!cle.startsWith("sk-ant-")) { this.erreur = "Ce n'est pas une clé API Anthropic : elle doit commencer par « sk-ant- »."; return null; }
     let r;
+    const arret = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const minuteur = arret ? setTimeout(() => arret.abort(), 45000) : null;
     try {
       r = await fetch("https://api.anthropic.com/v1/messages", {
+        signal: arret ? arret.signal : undefined,
         method: "POST",
         headers: { "x-api-key": cle, "anthropic-version": "2023-06-01", "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true" },
         body: JSON.stringify({ model: modele, max_tokens: maxTokens, system: systeme, messages }),
       });
     } catch (e) {
+      if (minuteur) clearTimeout(minuteur);
+      if (e && e.name === "AbortError") { this.erreur = "Claude met trop de temps à répondre. Réessaie dans un moment."; return null; }
       this.erreur = "Impossible de joindre Claude. Vérifie ta connexion internet. Si tu utilises la page en ligne (sur claude.ai), elle n'a pas le droit de contacter d'autres sites : ouvre plutôt le fichier chatbot-telephone.html sur ton téléphone.";
       return null;
     }
+    if (minuteur) clearTimeout(minuteur);
     let donnees = {};
     try { donnees = await r.json(); } catch (e) { /* réponse vide */ }
     if (!r.ok) { const err = donnees.error || {}; this.erreur = expliquerErreurApi(r.status, err.type || "", err.message || "", modele); return null; }
@@ -4894,8 +4900,9 @@ class Chatbot {
   _reglages(brut, t) {
     for (const [style, decl] of [["drole", ["mode drole", "sois drole", "mode marrant", "mode humour"]], ["serieux", ["mode serieux", "sois serieux"]], ["codeur", ["mode codeur", "mode code", "mode dev", "mode developpeur", "mode geek", "mode programmeur", "parle comme un codeur", "parle comme un developpeur"]], ["normal", ["mode normal", "sois normal", "redeviens normal"]]])
       if (contient(t, ...decl)) return this.changerPersonnalite(style);
-    if (contient(t, "statut ia", "ia active", "ia activee", "tu as l ia", "es tu connecte", "intelligence artificielle"))
-      return "Ma version téléphone est **100 % faite main** : pas d'IA branchée, tout est dans mon propre cerveau (règles, TF-IDF et réseau de neurones) 🧠";
+    if (contient(t, "statut ia", "ia active", "ia activee", "tu as l ia", "es tu connecte", "l ia est branchee", "claude est branche", "tu utilises claude") && t.split(" ").length <= 6)
+      return IA.active ? "L'IA est branchée ✅ Je réponds d'abord avec mon cerveau fait main ; quand je ne comprends pas, je demande à Claude." + (IA.erreur ? ` (Dernier problème : ${IA.erreur})` : "")
+        : "Je suis **100 % fait main** : pas d'IA branchée, tout est dans mon propre cerveau (règles, TF-IDF et réseau de neurones) 🧠 Tu peux brancher Claude dans ⚙️ Réglages avec ta clé API.";
     return null;
   }
   async _attenteReponse(brut, t, tc, mots, q) {
@@ -5030,7 +5037,7 @@ class Chatbot {
         return "Tu aimes bien dire bonjour, toi 😂 Bonjour bonjour ! Allez, on parle de quoi ?";
       }
       const der = lireDate(this.mem.derniere_salutation);
-      if (der && (Date.now() - der) / 1000 < 8 * 3600) return `Re-salut ! 👋 On s'est déjà parlé ${depuis(this.mem.derniere_salutation)} dans une autre discussion. Quoi de neuf ?`;
+      if (der && (Date.now() - der) / 1000 < 8 * 3600) return `Re-salut ! 👋 On s'est déjà parlé ${depuis(this.mem.derniere_salutation)}${hist.some((m) => m.qui === "bot") ? "" : " dans une autre discussion"}. Quoi de neuf ?`;
       return reponse;
     }
     if (type === "humeur_bot") { const a = deType("humeur_bot"); if (a.length) return hasard([`Tu m'as déjà posé la question ${depuis(a[a.length - 1].quand)} 😄 Je vais toujours bien ! Et toi ?`, `Toujours aussi bien qu'${depuis(a[a.length - 1].quand)} 😁 Et toi, ça va mieux ?`]); return reponse; }
@@ -5337,6 +5344,7 @@ class Chatbot {
     }
     if (contient(t, "que sais tu sur moi", "tu sais quoi sur moi", "qu est ce que tu sais sur moi", "qu est ce que tu sais de moi", "tu te souviens de moi", "ce que tu sais sur moi", "tu me connais", "parle moi de moi", "ta memoire", "mes records")) return this.resume();
     const quand = (c) => { const x = this.quandAppris(c); return x ? ` (tu me l'as dit ${x})` : ""; };
+    if (!(q || mots.length <= 3 || contient(t, "tu sais", "tu te souviens", "rappelle", "dis moi", "c est quoi", "quel", "quelle"))) return null;   // « mon chat est malade » n'est pas une question
     if (contient(t, "mon prenom", "mon nom", "qui suis je", "comment je m appelle", "je m appelle comment")) return `Tu t'appelles **${m.prenom}**, je m'en souviens très bien ! 😉` + quand("prenom");
     if (contient(t, "quel age j ai", "j ai quel age", "mon age", "quel est mon age")) { if (m.age) return `Tu as **${m.age} ans** !` + quand("age"); this.attente = "age"; return "Tu ne me l'as pas encore dit ! Tu as quel âge ?"; }
     if (contient(t, "ou j habite", "j habite ou", "ma ville", "ou je vis", "je vis ou")) { if (m.ville) return `Tu habites à **${m.ville}** 📍` + quand("ville"); this.attente = "ville"; return "Tu ne me l'as pas encore dit ! Tu habites où ?"; }
@@ -5437,7 +5445,18 @@ class Chatbot {
     if (!imp.size) return 0;
     return [...imp].filter((x) => this.motsSujets[nom].has(x)).length / imp.size;
   }
-  _intentions(brut, t, tc, mots) { const m = this.trouverIntention(brut, tc, mots); return m ? this.executerIntention(m) : null; }
+  _intentions(brut, t, tc, mots) {
+    const m = this.trouverIntention(brut, tc, mots);
+    if (!m) return null;
+    if (IA.active) {
+      // Claude est branché : je ne garde que ce dont je suis SÛR (message court, entièrement sur ce sujet), le reste part à Claude
+      const couv = this.motsImportants(brut).size ? this.couverture(brut, m.nom) : 1;      // « salut », « merci » : rien d'autre dans la phrase
+      let sur = mots.length <= 3 && couv >= 0.75 && !contient(t, "tu connais", "c est qui");
+      if (m.special) sur = sur || (mots.length <= 5 && couv >= 0.6);
+      if (!sur) { this.noterStat("sujets", m.nom); return null; }
+    }
+    return this.executerIntention(m);
+  }
   executerIntention(m) {
     this.type = m.nom; this.noterStat("sujets", m.nom);
     if (m.special === "blague") {
@@ -5459,6 +5478,7 @@ class Chatbot {
       const r = await this.demanderIA(brut);
       if (r) return r;
       this.derniereErreurIA = IA.erreur;
+      if (IA.erreur) return `⚠️ Je ne comprends pas tout seul, et **Claude n'a pas pu répondre** : ${IA.erreur}\n*(Tu peux tester ta clé dans ⚙️ Réglages → Intelligence artificielle, ou couper « Utiliser Claude ».)*`;
     }
     const sujet = this.sujetWiki(brut);
     if (sujet) { const w = await this.wiki(sujet); if (w) return w; }
